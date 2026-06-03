@@ -256,17 +256,17 @@ impl SummarizationManager {
 
         // Try to break at sentence boundary
         let truncated = &first_paragraph[..max_length];
-        if let Some(last_period) = truncated.rfind(". ") {
-            if last_period > max_length / 2 {
-                return Ok(truncated[..=last_period].to_string());
-            }
+        if let Some(last_period) = truncated.rfind(". ")
+            && last_period > max_length / 2
+        {
+            return Ok(truncated[..=last_period].to_string());
         }
 
         // Try to break at word boundary
-        if let Some(last_space) = truncated.rfind(' ') {
-            if last_space > max_length / 2 {
-                return Ok(format!("{}...", &truncated[..last_space]));
-            }
+        if let Some(last_space) = truncated.rfind(' ')
+            && last_space > max_length / 2
+        {
+            return Ok(format!("{}...", &truncated[..last_space]));
         }
 
         // Fallback to character truncation

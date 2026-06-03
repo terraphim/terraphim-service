@@ -165,15 +165,15 @@ pub async fn auto_select_role(
 
     // Zero-match path.
     if top_score == 0 {
-        if let Some(sel) = ctx.selected_role.as_ref() {
-            if config.roles.contains_key(sel) {
-                return AutoRouteResult {
-                    role: sel.clone(),
-                    score: 0,
-                    candidates: scored,
-                    reason: AutoRouteReason::ZeroMatchSelectedRole,
-                };
-            }
+        if let Some(sel) = ctx.selected_role.as_ref()
+            && config.roles.contains_key(sel)
+        {
+            return AutoRouteResult {
+                role: sel.clone(),
+                score: 0,
+                candidates: scored,
+                reason: AutoRouteReason::ZeroMatchSelectedRole,
+            };
         }
         // Fall back to Default if present, else the alphabetically first role.
         let default_role = RoleName::from("Default");
@@ -207,15 +207,15 @@ pub async fn auto_select_role(
     }
 
     // Tie-break: prefer selected_role if it's in the tied set.
-    if let Some(sel) = ctx.selected_role.as_ref() {
-        if tied.contains(&sel) {
-            return AutoRouteResult {
-                role: sel.clone(),
-                score: top_score,
-                candidates: scored,
-                reason: AutoRouteReason::TieBrokenBySelectedRole,
-            };
-        }
+    if let Some(sel) = ctx.selected_role.as_ref()
+        && tied.contains(&sel)
+    {
+        return AutoRouteResult {
+            role: sel.clone(),
+            score: top_score,
+            candidates: scored,
+            reason: AutoRouteReason::TieBrokenBySelectedRole,
+        };
     }
 
     AutoRouteResult {

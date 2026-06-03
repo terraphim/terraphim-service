@@ -174,10 +174,9 @@ impl ExecutionRecord {
         if let (Some(completed), Ok(started)) = (
             &self.completed_at,
             DateTime::parse_from_rfc3339(&self.started_at),
-        ) {
-            if let Ok(completed_dt) = DateTime::parse_from_rfc3339(completed) {
-                return Some((completed_dt - started).num_milliseconds());
-            }
+        ) && let Ok(completed_dt) = DateTime::parse_from_rfc3339(completed)
+        {
+            return Some((completed_dt - started).num_milliseconds());
         }
         self.latency_ms
     }
@@ -484,16 +483,15 @@ impl UsageStore {
         let mut metrics = Vec::new();
         for entry in entries {
             let path: &str = entry.path();
-            if path.ends_with(".json") {
-                if let Some(filename) = path
+            if path.ends_with(".json")
+                && let Some(filename) = path
                     .strip_prefix("usage/metrics/")
                     .and_then(|s: &str| s.strip_suffix(".json"))
-                {
-                    let mut record = AgentMetricsRecord::new(filename.to_string());
-                    match record.load().await {
-                        Ok(loaded) => metrics.push(loaded),
-                        Err(e) => eprintln!("Warning: Failed to load {}: {}", path, e),
-                    }
+            {
+                let mut record = AgentMetricsRecord::new(filename.to_string());
+                match record.load().await {
+                    Ok(loaded) => metrics.push(loaded),
+                    Err(e) => eprintln!("Warning: Failed to load {}: {}", path, e),
                 }
             }
         }
@@ -836,12 +834,12 @@ impl AlertConfig {
         let mut best: Option<u8> = None;
         for threshold in &self.thresholds {
             if percentage >= *threshold as f64 {
-                if let Some(last_alerted) = self.last_alerted.get(threshold) {
-                    if let Ok(last_dt) = DateTime::parse_from_rfc3339(last_alerted) {
-                        let hours_since = (Utc::now().fixed_offset() - last_dt).num_hours();
-                        if hours_since < 24 {
-                            continue;
-                        }
+                if let Some(last_alerted) = self.last_alerted.get(threshold)
+                    && let Ok(last_dt) = DateTime::parse_from_rfc3339(last_alerted)
+                {
+                    let hours_since = (Utc::now().fixed_offset() - last_dt).num_hours();
+                    if hours_since < 24 {
+                        continue;
                     }
                 }
                 best = Some(*threshold);

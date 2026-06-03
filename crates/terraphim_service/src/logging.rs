@@ -143,10 +143,10 @@ pub fn init_external_tracing_logging(verbose: bool) {
 /// Get appropriate logging config based on environment
 pub fn detect_logging_config() -> LoggingConfig {
     // Check for explicit LOG_LEVEL environment variable
-    if let Ok(level_str) = std::env::var("LOG_LEVEL") {
-        if let Ok(level) = level_str.parse::<log::LevelFilter>() {
-            return LoggingConfig::Custom { level };
-        }
+    if let Ok(level_str) = std::env::var("LOG_LEVEL")
+        && let Ok(level) = level_str.parse::<log::LevelFilter>()
+    {
+        return LoggingConfig::Custom { level };
     }
 
     // Detect test environment

@@ -72,12 +72,11 @@ async fn test_ensure_thesaurus_loaded_terraphim_engineer() {
         .unwrap();
 
     // Update the Terraphim Engineer role to use project KG directory
-    if let Some(terr_eng_role) = config.roles.get_mut(&"Terraphim Engineer".into()) {
-        if let Some(kg) = &mut terr_eng_role.kg {
-            if let Some(kg_local) = &mut kg.knowledge_graph_local {
-                kg_local.path = kg_path;
-            }
-        }
+    if let Some(terr_eng_role) = config.roles.get_mut(&"Terraphim Engineer".into())
+        && let Some(kg) = &mut terr_eng_role.kg
+        && let Some(kg_local) = &mut kg.knowledge_graph_local
+    {
+        kg_local.path = kg_path;
     }
 
     let config_state = ConfigState::new(&mut config).await.unwrap();

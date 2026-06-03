@@ -462,16 +462,16 @@ impl TerraphimService {
                         )
                         .await;
 
-                        if result.is_ok() {
-                            if let Some(updated_rolegraph) = rolegraphs.get(role_name) {
-                                self.config_state
-                                    .roles
-                                    .insert(role_name.clone(), updated_rolegraph.clone());
-                                log::info!(
-                                    "Updated config_state with rebuilt rolegraph for role: {}",
-                                    role_name
-                                );
-                            }
+                        if result.is_ok()
+                            && let Some(updated_rolegraph) = rolegraphs.get(role_name)
+                        {
+                            self.config_state
+                                .roles
+                                .insert(role_name.clone(), updated_rolegraph.clone());
+                            log::info!(
+                                "Updated config_state with rebuilt rolegraph for role: {}",
+                                role_name
+                            );
                         }
                         result
                     } else {
@@ -499,16 +499,16 @@ impl TerraphimService {
                     .await;
 
                     // Update the actual config_state with the new rolegraph
-                    if result.is_ok() {
-                        if let Some(updated_rolegraph) = rolegraphs.get(role_name) {
-                            self.config_state
-                                .roles
-                                .insert(role_name.clone(), updated_rolegraph.clone());
-                            log::info!(
-                                "Updated config_state with new rolegraph for role: {}",
-                                role_name
-                            );
-                        }
+                    if result.is_ok()
+                        && let Some(updated_rolegraph) = rolegraphs.get(role_name)
+                    {
+                        self.config_state
+                            .roles
+                            .insert(role_name.clone(), updated_rolegraph.clone());
+                        log::info!(
+                            "Updated config_state with new rolegraph for role: {}",
+                            role_name
+                        );
                     }
 
                     result
@@ -522,16 +522,16 @@ impl TerraphimService {
                     .await;
 
             // Update the actual config_state with the new rolegraph
-            if result.is_ok() {
-                if let Some(new_rolegraph) = rolegraphs.get(role_name) {
-                    self.config_state
-                        .roles
-                        .insert(role_name.clone(), new_rolegraph.clone());
-                    log::info!(
-                        "Added new rolegraph to config_state for role: {}",
-                        role_name
-                    );
-                }
+            if result.is_ok()
+                && let Some(new_rolegraph) = rolegraphs.get(role_name)
+            {
+                self.config_state
+                    .roles
+                    .insert(role_name.clone(), new_rolegraph.clone());
+                log::info!(
+                    "Added new rolegraph to config_state for role: {}",
+                    role_name
+                );
             }
 
             result

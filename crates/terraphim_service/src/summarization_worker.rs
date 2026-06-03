@@ -272,25 +272,25 @@ impl SummarizationWorker {
         // Update task status
         {
             let mut status_map = self.task_status.write().await;
-            if let Some(status) = status_map.get(&task_id) {
-                if !status.is_terminal() {
-                    status_map.insert(
-                        task_id.clone(),
-                        TaskStatus::Cancelled {
-                            cancelled_at: Utc::now(),
-                            reason: reason.clone(),
-                        },
-                    );
-                    drop(status_map);
+            if let Some(status) = status_map.get(&task_id)
+                && !status.is_terminal()
+            {
+                status_map.insert(
+                    task_id.clone(),
+                    TaskStatus::Cancelled {
+                        cancelled_at: Utc::now(),
+                        reason: reason.clone(),
+                    },
+                );
+                drop(status_map);
 
-                    // Record cancellation in stats
-                    {
-                        let mut worker_stats = self.stats.write().await;
-                        worker_stats.record_cancelled();
-                    }
-
-                    log::info!("Task {} cancelled: {}", task_id, reason);
+                // Record cancellation in stats
+                {
+                    let mut worker_stats = self.stats.write().await;
+                    worker_stats.record_cancelled();
                 }
+
+                log::info!("Task {} cancelled: {}", task_id, reason);
             }
         }
 
@@ -559,15 +559,16 @@ impl SummarizationWorker {
     async fn process_task(task: SummarizationTask) -> Result<String, ServiceError> {
         // Check if summary already exists and force_regenerate is false
         if !task.force_regenerate {
-            if let Some(existing_summary) = &task.document.description {
-                if !existing_summary.trim().is_empty() && existing_summary.len() >= 50 {
-                    log::info!(
-                        "Worker bypassing LLM: Using existing description as summary for document '{}' (length: {})",
-                        task.document.id,
-                        existing_summary.len()
-                    );
-                    return Ok(existing_summary.clone());
-                }
+            if let Some(existing_summary) = &task.document.description
+                && !existing_summary.trim().is_empty()
+                && existing_summary.len() >= 50
+            {
+                log::info!(
+                    "Worker bypassing LLM: Using existing description as summary for document '{}' (length: {})",
+                    task.document.id,
+                    existing_summary.len()
+                );
+                return Ok(existing_summary.clone());
             }
 
             // Check if document already has summarization (caching)

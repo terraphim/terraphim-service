@@ -398,10 +398,10 @@ pub fn email_to_document(email: &Email) -> Document {
     if !sender.is_empty() {
         tags.push(format!("sender:{}", sender));
     }
-    if let Some(ref date) = email.received_at {
-        if let Some(date_part) = date.split('T').next() {
-            tags.push(date_part.to_string());
-        }
+    if let Some(ref date) = email.received_at
+        && let Some(date_part) = date.split('T').next()
+    {
+        tags.push(date_part.to_string());
     }
 
     let url = format!("jmap:///email/{}", email.id);

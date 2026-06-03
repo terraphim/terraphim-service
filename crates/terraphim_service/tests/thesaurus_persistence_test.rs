@@ -217,18 +217,18 @@ async fn test_thesaurus_persistence_error_handling() {
 
     // Configure KG if directory exists
     let role_name = RoleName::new("Terraphim Engineer");
-    if kg_path.exists() {
-        if let Some(role) = config.roles.get_mut(&role_name) {
-            role.kg = Some(KnowledgeGraph {
-                automata_path: None,
-                knowledge_graph_local: Some(terraphim_config::KnowledgeGraphLocal {
-                    input_type: KnowledgeGraphInputType::Markdown,
-                    path: kg_path,
-                }),
-                public: false,
-                publish: false,
-            });
-        }
+    if kg_path.exists()
+        && let Some(role) = config.roles.get_mut(&role_name)
+    {
+        role.kg = Some(KnowledgeGraph {
+            automata_path: None,
+            knowledge_graph_local: Some(terraphim_config::KnowledgeGraphLocal {
+                input_type: KnowledgeGraphInputType::Markdown,
+                path: kg_path,
+            }),
+            public: false,
+            publish: false,
+        });
     }
 
     let config_state = ConfigState::new(&mut config)
@@ -303,18 +303,18 @@ async fn test_thesaurus_memory_vs_persistence() {
 
     // Configure KG if directory exists
     let role_name = RoleName::new("Terraphim Engineer");
-    if kg_path.exists() {
-        if let Some(role) = config.roles.get_mut(&role_name) {
-            role.kg = Some(KnowledgeGraph {
-                automata_path: None,
-                knowledge_graph_local: Some(terraphim_config::KnowledgeGraphLocal {
-                    input_type: KnowledgeGraphInputType::Markdown,
-                    path: kg_path,
-                }),
-                public: false,
-                publish: false,
-            });
-        }
+    if kg_path.exists()
+        && let Some(role) = config.roles.get_mut(&role_name)
+    {
+        role.kg = Some(KnowledgeGraph {
+            automata_path: None,
+            knowledge_graph_local: Some(terraphim_config::KnowledgeGraphLocal {
+                input_type: KnowledgeGraphInputType::Markdown,
+                path: kg_path,
+            }),
+            public: false,
+            publish: false,
+        });
     }
 
     let config_state = ConfigState::new(&mut config)

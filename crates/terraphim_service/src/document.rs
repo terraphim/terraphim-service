@@ -384,15 +384,16 @@ impl TerraphimService {
 
         for role in config_snapshot.roles.values() {
             for haystack in &role.haystacks {
-                if haystack.service == ServiceType::Ripgrep && !haystack.read_only {
-                    if let Err(e) = ripgrep.update_document(&document).await {
-                        log::warn!(
-                            "Failed to write document {} to haystack {:?}: {:?}",
-                            document.id,
-                            haystack.location,
-                            e
-                        );
-                    }
+                if haystack.service == ServiceType::Ripgrep
+                    && !haystack.read_only
+                    && let Err(e) = ripgrep.update_document(&document).await
+                {
+                    log::warn!(
+                        "Failed to write document {} to haystack {:?}: {:?}",
+                        document.id,
+                        haystack.location,
+                        e
+                    );
                 }
             }
         }

@@ -297,10 +297,10 @@ impl LlmProxyClient {
 
     /// Get the effective base URL for a provider (proxy or direct)
     pub fn get_effective_url(&self, provider: &str) -> Option<String> {
-        if let Some(config) = self.configs.get(provider) {
-            if let Some(base_url) = &config.base_url {
-                return Some(base_url.clone());
-            }
+        if let Some(config) = self.configs.get(provider)
+            && let Some(base_url) = &config.base_url
+        {
+            return Some(base_url.clone());
         }
 
         // Return direct endpoint if no proxy configured

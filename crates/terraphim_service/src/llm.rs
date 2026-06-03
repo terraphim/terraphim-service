@@ -162,19 +162,19 @@ pub fn build_llm_from_role(role: &terraphim_config::Role) -> Option<Arc<dyn LlmC
     #[cfg(feature = "genai")]
     {
         let model = get_string_extra(&role.extra, "llm_model").or_else(|| role.llm_model.clone());
-        if model.is_some() {
-            if let Some(client) = build_genai_from_role(role) {
-                log::debug!("Built genai client as primary provider");
-                return Some(client);
-            }
+        if model.is_some()
+            && let Some(client) = build_genai_from_role(role)
+        {
+            log::debug!("Built genai client as primary provider");
+            return Some(client);
         }
     }
 
     // Fallbacks: use OpenRouter if configured, else Ollama if extra hints exist
-    if role_has_openrouter_config(role) {
-        if let Some(client) = build_openrouter_from_role(role) {
-            return Some(client);
-        }
+    if role_has_openrouter_config(role)
+        && let Some(client) = build_openrouter_from_role(role)
+    {
+        return Some(client);
     }
 
     if has_ollama_hints(&role.extra) {

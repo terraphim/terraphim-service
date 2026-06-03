@@ -64,11 +64,11 @@ async fn test_real_config_auto_summarization_e2e() -> Result<()> {
     create_test_documents_in_docs(&temp_dir)?;
 
     // Update the haystack location to point to our test documents
-    if let Some(role) = config.roles.get_mut(&config.default_role) {
-        if let Some(haystack) = role.haystacks.first_mut() {
-            haystack.location = temp_dir.path().to_string_lossy().to_string();
-            println!("   Updated haystack location to: {}", haystack.location);
-        }
+    if let Some(role) = config.roles.get_mut(&config.default_role)
+        && let Some(haystack) = role.haystacks.first_mut()
+    {
+        haystack.location = temp_dir.path().to_string_lossy().to_string();
+        println!("   Updated haystack location to: {}", haystack.location);
     }
 
     // Step 3: Initialize the service with the real config
@@ -149,10 +149,10 @@ async fn test_real_config_auto_summarization_e2e() -> Result<()> {
 
     // Step 8: Test the role graph functionality
     println!("🔍 Testing role graph functionality");
-    if let Some(role) = config.roles.get(&config.default_role) {
-        if role.kg.is_some() {
-            println!("   ✅ Role has knowledge graph configuration");
-        }
+    if let Some(role) = config.roles.get(&config.default_role)
+        && role.kg.is_some()
+    {
+        println!("   ✅ Role has knowledge graph configuration");
     }
 
     println!("🎉 Real config E2E test completed successfully!");

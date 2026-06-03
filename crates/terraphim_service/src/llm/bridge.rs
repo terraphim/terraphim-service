@@ -217,12 +217,11 @@ pub fn provider_from_llm_client(client: &dyn LlmClient, role: &terraphim_config:
 fn extract_routing_text(messages: &[serde_json::Value]) -> String {
     // Find the last user message
     for msg in messages.iter().rev() {
-        if let Some(role) = msg.get("role").and_then(|r| r.as_str()) {
-            if role == "user" {
-                if let Some(content) = msg.get("content").and_then(|c| c.as_str()) {
-                    return content.to_string();
-                }
-            }
+        if let Some(role) = msg.get("role").and_then(|r| r.as_str())
+            && role == "user"
+            && let Some(content) = msg.get("content").and_then(|c| c.as_str())
+        {
+            return content.to_string();
         }
     }
     String::new()

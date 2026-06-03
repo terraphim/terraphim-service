@@ -100,11 +100,11 @@ impl CcusageClient {
     pub fn query(&mut self, since: &str, until: Option<&str>) -> Result<DailyUsageReport> {
         let cache_key = format!("{}:{}:{}", self.provider, since, until.unwrap_or("now"));
 
-        if let Some((report, fetched_at)) = self.cache.get(&cache_key) {
-            if fetched_at.elapsed() < self.cache_ttl {
-                tracing::debug!("ccusage cache hit for {}", cache_key);
-                return Ok(report.clone());
-            }
+        if let Some((report, fetched_at)) = self.cache.get(&cache_key)
+            && fetched_at.elapsed() < self.cache_ttl
+        {
+            tracing::debug!("ccusage cache hit for {}", cache_key);
+            return Ok(report.clone());
         }
 
         let runner = find_runner()?;

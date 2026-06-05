@@ -13,7 +13,7 @@ readme = "../../README.md"
 
 [dependencies]
 # Terraphim internal crates
-terraphim_types = { version = "1.0.0", registry = "terraphim" }
+terraphim_types = { version = "1.0.0" }
 
 # Core dependencies
 serde = { workspace = true, features = ["derive"] }
@@ -37,7 +37,7 @@ dirs = "5.0"
 [dependencies.terraphim_persistence]
 version = "1.0.0"
 optional = true
-registry = "terraphim"
+
 
 # Optional file-watching support
 [dependencies.notify]
@@ -58,7 +58,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 serial_test = "3.2"
 criterion = "0.8"
 proptest = "1.4"
-terraphim_persistence = { version = "1.20.2", registry = "terraphim" }
+terraphim_persistence = { version = "1.20.2" }
 terraphim_spawner = { path = "../terraphim_spawner" }
 
 [[bench]]

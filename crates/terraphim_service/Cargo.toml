@@ -12,12 +12,12 @@ license = "Apache-2.0"
 readme = "../../README.md"
 
 [dependencies]
-terraphim_persistence = { version = "1.0.0", registry = "terraphim" }
-terraphim_config = { version = "1.0.0", registry = "terraphim" }
-terraphim_middleware = { path = "../terraphim_middleware", version = "1.0.0", registry = "terraphim" }
-terraphim_types = { version = "1.0.0", registry = "terraphim" }
-terraphim_automata = { version = "1.19.2", registry = "terraphim", features = ["remote-loading", "tokio-runtime"] }
-terraphim_rolegraph = { version = "1.0.0", registry = "terraphim" }
+terraphim_persistence = { version = "1.0.0" }
+terraphim_config = { version = "1.0.0" }
+terraphim_middleware = { path = "../terraphim_middleware", version = "1.0.0" }
+terraphim_types = { version = "1.0.0" }
+terraphim_automata = { version = "1.19.2", features = ["remote-loading", "tokio-runtime"] }
+terraphim_rolegraph = { version = "1.0.0" }
 
 ahash = { version = "0.8.8", features = ["serde"] }
 thiserror = { workspace = true }
@@ -40,7 +40,7 @@ once_cell = "1.19"
 genai = { version = "0.6.0", optional = true }
 
 # LLM Router integration
-terraphim_router = { path = "../terraphim_router", version = "1.0.0", optional = true, registry = "terraphim" }
+terraphim_router = { path = "../terraphim_router", version = "1.0.0", optional = true }
 
 # Logging utilities
 env_logger = "0.11"
@@ -61,8 +61,8 @@ tracing = ["dep:tracing", "dep:tracing-subscriber"]
 
 [dev-dependencies]
 tokio = { workspace = true }
-terraphim_settings = { version = "1.0.0", registry = "terraphim" }
-terraphim_test_utils = { version = "1.20.3", registry = "terraphim" }
+terraphim_settings = { version = "1.0.0" }
+terraphim_test_utils = { version = "1.20.3" }
 anyhow = { workspace = true }
 serial_test = "3.3"
 tempfile = { workspace = true }

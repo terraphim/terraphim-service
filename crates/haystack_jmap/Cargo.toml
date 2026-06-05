@@ -11,8 +11,8 @@ license = "MIT"
 readme = "../../README.md"
 
 [dependencies]
-haystack_core = { path = "../haystack_core", version = "1.19.3", registry = "terraphim" }
-terraphim_types = { version = "1.0.0", registry = "terraphim" }
+haystack_core = { path = "../haystack_core", version = "1.19.3" }
+terraphim_types = { version = "1.0.0" }
 reqwest = { workspace = true, features = ["json", "rustls-tls"] }
 
 tokio = { workspace = true, features = ["full"] }

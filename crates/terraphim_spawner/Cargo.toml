@@ -13,7 +13,7 @@ readme = "../../README.md"
 
 [dependencies]
 # Terraphim internal crates
-terraphim_types = { version = "1.0.0", registry = "terraphim" }
+terraphim_types = { version = "1.0.0" }
 
 # Core dependencies
 tokio = { workspace = true, features = ["full"] }

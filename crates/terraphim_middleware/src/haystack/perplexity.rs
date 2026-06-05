@@ -2,7 +2,6 @@ use crate::{indexer::IndexMiddleware, Result};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::time::Duration;
 use terraphim_config::Haystack;
 use terraphim_persistence::Persistable;
@@ -37,13 +36,7 @@ struct PerplexityMessage {
 
 /// Response from Perplexity API
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct PerplexityResponse {
-    id: String,
-    #[serde(default)]
-    model: String,
-    #[serde(default)]
-    created: u64,
     #[serde(default)]
     usage: Option<PerplexityUsage>,
     #[serde(default)]
@@ -60,19 +53,12 @@ struct PerplexityUsage {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct PerplexityChoice {
-    index: usize,
-    finish_reason: String,
     message: PerplexityResponseMessage,
-    #[serde(default)]
-    delta: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct PerplexityResponseMessage {
-    role: String,
     content: String,
 }
 
@@ -95,13 +81,11 @@ struct PerplexityStats {
 /// - Response caching to reduce API costs
 /// - Multiple model support (sonar-small-online, sonar-medium-online, sonar-large-online)
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct PerplexityHaystackIndexer {
     client: Client,
     api_key: String,
     model: String,
     base_url: String,
-    cache_ttl_hours: u64,
     max_tokens: Option<u32>,
     temperature: Option<f32>,
     search_domain_filter: Option<Vec<String>>,
@@ -113,7 +97,6 @@ impl PerplexityHaystackIndexer {
     pub fn new(
         api_key: String,
         model: Option<String>,
-        cache_ttl_hours: Option<u64>,
         max_tokens: Option<u32>,
         temperature: Option<f32>,
         search_domain_filter: Option<Vec<String>>,
@@ -130,7 +113,6 @@ impl PerplexityHaystackIndexer {
             api_key,
             model: model.unwrap_or_else(|| "sonar-medium-online".to_string()),
             base_url: "https://api.perplexity.ai/chat/completions".to_string(),
-            cache_ttl_hours: cache_ttl_hours.unwrap_or(1),
             max_tokens,
             temperature,
             search_domain_filter,
@@ -156,9 +138,6 @@ impl PerplexityHaystackIndexer {
             })?;
 
         let model = extra_params.get("model").cloned();
-        let cache_ttl_hours = extra_params
-            .get("cache_ttl_hours")
-            .and_then(|s| s.parse().ok());
         let max_tokens = extra_params.get("max_tokens").and_then(|s| s.parse().ok());
         let temperature = extra_params.get("temperature").and_then(|s| s.parse().ok());
 
@@ -174,7 +153,6 @@ impl PerplexityHaystackIndexer {
         Self::new(
             api_key,
             model,
-            cache_ttl_hours,
             max_tokens,
             temperature,
             search_domain_filter,
@@ -472,7 +450,6 @@ impl Default for PerplexityHaystackIndexer {
             api_key: std::env::var("PERPLEXITY_API_KEY").unwrap_or_default(),
             model: "sonar-medium-online".to_string(),
             base_url: "https://api.perplexity.ai/chat/completions".to_string(),
-            cache_ttl_hours: 1,
             max_tokens: None,
             temperature: None,
             search_domain_filter: None,
@@ -626,7 +603,6 @@ mod tests {
         extra_params.insert("api_key".to_string(), "test_key".to_string());
         extra_params.insert("model".to_string(), "sonar-large-online".to_string());
         extra_params.insert("max_tokens".to_string(), "1000".to_string());
-        extra_params.insert("cache_ttl_hours".to_string(), "2".to_string());
         extra_params.insert(
             "search_domains".to_string(),
             "example.com,test.org".to_string(),
@@ -645,7 +621,6 @@ mod tests {
         assert_eq!(indexer.api_key, "test_key");
         assert_eq!(indexer.model, "sonar-large-online");
         assert_eq!(indexer.max_tokens, Some(1000));
-        assert_eq!(indexer.cache_ttl_hours, 2);
         assert_eq!(
             indexer.search_domain_filter,
             Some(vec!["example.com".to_string(), "test.org".to_string()])

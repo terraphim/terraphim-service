@@ -3,6 +3,7 @@
 //! Gitea #1910 god-file decomposition; behaviour unchanged. Methods remain on
 //! `TerraphimService`, so the public API is identical.
 
+#[cfg(feature = "openrouter")]
 use terraphim_config::Role;
 use terraphim_types::Document;
 
@@ -13,8 +14,11 @@ impl TerraphimService {
     ///
     /// This method uses the OpenRouter service to generate intelligent summaries
     /// of document content, replacing basic text excerpts with AI-powered descriptions.
-    #[allow(dead_code)] // Used in 7+ places but compiler can't see due to async/feature boundaries
-    async fn enhance_descriptions_with_ai(
+    ///
+    /// Only compiled with the `openrouter` feature, which gates the call sites
+    /// in `search.rs`; `pub(crate)` so those sibling-module call sites can reach it.
+    #[cfg(feature = "openrouter")]
+    pub(crate) async fn enhance_descriptions_with_ai(
         &self,
         mut documents: Vec<Document>,
         role: &Role,
@@ -89,7 +93,9 @@ impl TerraphimService {
     ///
     /// This helper method checks various criteria to decide whether a document
     /// would benefit from AI summarization.
-    #[allow(dead_code)] // Used by enhance_descriptions_with_ai, compiler can't see due to async boundaries
+    ///
+    /// Only compiled with the `openrouter` feature; used by `enhance_descriptions_with_ai`.
+    #[cfg(feature = "openrouter")]
     fn should_generate_ai_summary(&self, document: &Document) -> bool {
         // Don't enhance if the document body is too short to summarize meaningfully
         if document.body.trim().len() < 200 {
@@ -112,8 +118,6 @@ impl TerraphimService {
         // Good candidates for AI summarization
         true
     }
-
-    /// Get the role for the given search query
 
     /// Generate a summary for a document using OpenRouter
     ///

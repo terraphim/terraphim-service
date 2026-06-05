@@ -7,22 +7,12 @@
 use anyhow::Result;
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
 use tempfile::{NamedTempFile, tempdir};
 use terraphim_session_analyzer::models::*;
 use terraphim_session_analyzer::utils;
 use terraphim_session_analyzer::{Analyzer, Reporter, SessionParser, TimelineEventType};
 
-/// Test data directory path
-#[allow(dead_code)]
-fn test_data_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("test_data")
-}
-
 /// Create a test session file with given content
-#[allow(dead_code)]
 fn create_test_session_file(content: &str) -> Result<NamedTempFile> {
     let mut file = NamedTempFile::new()?;
     writeln!(file, "{}", content)?;

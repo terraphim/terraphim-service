@@ -7,8 +7,8 @@ use terraphim_types::Document;
 
 use crate::ServiceError;
 use crate::summarization_queue::{
-    Priority, QueueCommand, QueueConfig, QueueStats, SubmitResult, SummarizationQueue,
-    SummarizationTask, TaskId, TaskStatus,
+    Priority, QueueConfig, QueueStats, SubmitResult, SummarizationQueue, SummarizationTask, TaskId,
+    TaskStatus,
 };
 use crate::summarization_worker::SummarizationWorker;
 
@@ -16,15 +16,15 @@ use crate::summarization_worker::SummarizationWorker;
 pub struct SummarizationManager {
     queue: SummarizationQueue,
     worker_handle: Option<JoinHandle<Result<(), ServiceError>>>,
-    #[allow(dead_code)] // Kept alive to prevent channel closure, queue has its own clone
-    command_sender: mpsc::Sender<QueueCommand>,
 }
 
 impl SummarizationManager {
     /// Create a new summarization manager
     pub fn new(config: QueueConfig) -> Self {
         let (command_sender, command_receiver) = mpsc::channel(100);
-        let queue = SummarizationQueue::new(config.clone(), command_sender.clone());
+        // The queue owns the command sender; the worker owns the receiver. The
+        // manager itself drives commands through `queue`, so it stores no sender.
+        let queue = SummarizationQueue::new(config.clone(), command_sender);
 
         // Get shared task status storage
         let task_status = queue.get_task_status_storage();
@@ -38,7 +38,6 @@ impl SummarizationManager {
         Self {
             queue,
             worker_handle,
-            command_sender,
         }
     }
 

@@ -16,7 +16,6 @@ struct QuickwitSearchResponse {
     elapsed_time_micros: u64,
     /// Error messages from Quickwit (kept for API compatibility and debugging)
     #[serde(default)]
-    #[allow(dead_code)]
     errors: Vec<String>,
 }
 
@@ -37,7 +36,6 @@ struct QuickwitConfig {
     index_filter: Option<String>,
     max_hits: u64,
     /// Timeout for requests (kept for future use with custom HTTP client)
-    #[allow(dead_code)]
     timeout_seconds: u64,
     sort_by: String,
 }
@@ -168,6 +166,10 @@ impl QuickwitHaystackIndexer {
         // Priority 1: Bearer token
         if let Some(token) = &config.auth_token {
             // Token should already include "Bearer " prefix
+            log::debug!(
+                "Quickwit request using Bearer token {}",
+                self.redact_token(token)
+            );
             return request.header("Authorization", token);
         }
 
@@ -279,6 +281,14 @@ impl QuickwitHaystackIndexer {
                                 search_response.num_hits,
                                 search_response.elapsed_time_micros
                             );
+
+                            if !search_response.errors.is_empty() {
+                                log::warn!(
+                                    "Quickwit index '{}' reported errors: {}",
+                                    index,
+                                    search_response.errors.join("; ")
+                                );
+                            }
 
                             // Transform hits to Documents
                             let mut result_index = Index::new();
@@ -470,7 +480,6 @@ impl QuickwitHaystackIndexer {
 
     /// Redact authentication token for safe logging
     /// Shows only first 4 characters
-    #[allow(dead_code)]
     fn redact_token(&self, token: &str) -> String {
         if token.len() <= 4 {
             "***".to_string()

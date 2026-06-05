@@ -182,7 +182,6 @@ impl ExecutionRecord {
     }
 
     /// Create a key for this execution record
-    #[allow(dead_code)]
     fn create_key(agent_name: &str, timestamp: &DateTime<Utc>) -> String {
         format!(
             "usage/executions/{}/{}.json",
@@ -607,12 +606,7 @@ impl UsageStore {
         for entry in entries {
             let path: &str = entry.path();
             if path.ends_with(".json") {
-                let content = op
-                    .read(path)
-                    .await
-                    .map_err(|e| crate::UsageError::StorageError(e.to_string()))?;
-                let exec: ExecutionRecord = serde_json::from_slice(&content.to_vec())
-                    .map_err(crate::UsageError::SerializationError)?;
+                let exec = Self::load_execution_from_path(op, path).await?;
                 let exec_dt = match chrono::DateTime::parse_from_rfc3339(&exec.started_at) {
                     Ok(dt) => dt,
                     Err(_) => continue,
@@ -739,7 +733,6 @@ impl UsageStore {
         })
     }
 
-    #[allow(dead_code)]
     async fn load_execution_from_path(
         op: &opendal::Operator,
         path: &str,

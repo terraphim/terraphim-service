@@ -6,8 +6,6 @@ use serde::Deserialize;
 struct ZaiApiResponse {
     code: i64,
     data: ZaiUsageData,
-    #[allow(dead_code)]
-    success: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -24,10 +22,6 @@ struct ZaiLimit {
     usage: i64,
     #[serde(rename = "currentValue")]
     current_value: i64,
-    #[allow(dead_code)]
-    remaining: i64,
-    #[allow(dead_code)]
-    percentage: i64,
     #[serde(rename = "nextResetTime")]
     next_reset_time: Option<i64>,
     #[serde(rename = "usageDetails")]
@@ -43,20 +37,13 @@ struct ZaiUsageDetail {
 
 #[derive(Debug, Deserialize)]
 struct ZaiSubscription {
-    #[allow(dead_code)]
-    code: i64,
     data: Vec<ZaiSubscriptionItem>,
-    #[allow(dead_code)]
-    success: bool,
 }
 
 #[derive(Debug, Deserialize)]
 struct ZaiSubscriptionItem {
     #[serde(rename = "productName")]
     product_name: String,
-    #[serde(rename = "nextRenewTime")]
-    #[allow(dead_code)]
-    next_renew_time: Option<String>,
 }
 
 pub struct ZaiProvider {
@@ -291,7 +278,7 @@ mod tests {
         let data: ZaiApiResponse = serde_json::from_str(json).unwrap();
         assert_eq!(data.data.limits.len(), 2);
         assert_eq!(data.data.limits[0].limit_type, "TOKENS_LIMIT");
-        assert_eq!(data.data.limits[0].percentage, 15);
+        assert_eq!(data.data.limits[0].current_value, 127_694_464);
         assert_eq!(data.data.limits[1].usage_details.as_ref().unwrap().len(), 2);
     }
 

@@ -1,32 +1,17 @@
 use crate::{MetricLine, ProgressFormat, ProviderUsage, Result, UsageError, UsageProvider};
-use std::path::PathBuf;
 use std::time::Duration;
 
 pub struct ClaudeProvider {
-    #[allow(dead_code)]
-    credentials_path: PathBuf,
     ccusage: std::sync::Mutex<terraphim_ccusage::CcusageClient>,
 }
 
 impl ClaudeProvider {
     pub fn new() -> Self {
-        let home = std::env::var("HOME").unwrap_or_default();
         Self {
-            credentials_path: PathBuf::from(format!("{}/.claude/.credentials.json", home)),
             ccusage: std::sync::Mutex::new(
                 terraphim_ccusage::CcusageClient::new(terraphim_ccusage::CcusageProvider::Claude)
                     .with_cache_ttl(Duration::from_secs(300)),
             ),
-        }
-    }
-
-    pub fn with_credentials_path(path: PathBuf) -> Self {
-        let ccusage =
-            terraphim_ccusage::CcusageClient::new(terraphim_ccusage::CcusageProvider::Claude)
-                .with_cache_ttl(Duration::from_secs(300));
-        Self {
-            credentials_path: path,
-            ccusage: std::sync::Mutex::new(ccusage),
         }
     }
 }
@@ -151,11 +136,6 @@ mod tests {
     #[test]
     fn test_claude_provider_default() {
         let provider = ClaudeProvider::default();
-        assert!(
-            provider
-                .credentials_path
-                .to_string_lossy()
-                .contains(".claude")
-        );
+        assert_eq!(provider.id(), "claude");
     }
 }

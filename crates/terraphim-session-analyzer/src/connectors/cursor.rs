@@ -239,7 +239,15 @@ impl CursorConnector {
         )?;
 
         let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
+            let key = row.get::<_, String>(0)?;
+            // The value column may be TEXT or BLOB depending on Cursor version.
+            // Use get_ref to accept both without a type-mismatch error.
+            let value_bytes: Vec<u8> = match row.get_ref(1)? {
+                rusqlite::types::ValueRef::Text(s) => s.to_vec(),
+                rusqlite::types::ValueRef::Blob(b) => b.to_vec(),
+                _ => vec![],
+            };
+            Ok((key, value_bytes))
         })?;
 
         for row in rows {
@@ -467,5 +475,71 @@ mod tests {
         let connector = CursorConnector;
         assert_eq!(connector.source_id(), "cursor");
         assert_eq!(connector.display_name(), "Cursor IDE");
+    }
+
+    /// Regression test for #2314: ItemTable.value column declared as TEXT panics
+    /// with "Invalid column type Text" when the caller reads it as Vec<u8> (BLOB).
+    #[test]
+    fn test_parse_legacy_format_text_column() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+
+        conn.execute_batch(
+            "CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             INSERT INTO ItemTable (key, value) VALUES (
+                 'aichat.currentchatdata',
+                 '{\"messages\":[{\"role\":\"user\",\"content\":\"hello\",\"timestamp\":1000,\"model\":null}]}'
+             );",
+        )
+        .unwrap();
+
+        let connector = CursorConnector;
+        let mut seen_ids = std::collections::HashSet::new();
+        let result = connector.parse_legacy_format(
+            &conn,
+            std::path::Path::new("/fake/state.vscdb"),
+            &mut seen_ids,
+        );
+        assert!(
+            result.is_ok(),
+            "TEXT column should not fail: {:?}",
+            result.err()
+        );
+        let sessions = result.unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].messages[0].role, "user");
+        assert_eq!(sessions[0].messages[0].content, "hello");
+    }
+
+    /// Guard that BLOB column path still works after the TEXT fix.
+    #[test]
+    fn test_parse_legacy_format_blob_column() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+
+        conn.execute_batch("CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value BLOB NOT NULL);")
+            .unwrap();
+        let json =
+            b"{\"messages\":[{\"role\":\"assistant\",\"content\":\"hi there\",\"timestamp\":2000,\"model\":\"gpt-4\"}]}";
+        conn.execute(
+            "INSERT INTO ItemTable (key, value) VALUES (?1, ?2)",
+            rusqlite::params!["aichat.currentchatdata", json.as_slice()],
+        )
+        .unwrap();
+
+        let connector = CursorConnector;
+        let mut seen_ids = std::collections::HashSet::new();
+        let result = connector.parse_legacy_format(
+            &conn,
+            std::path::Path::new("/fake/state.vscdb"),
+            &mut seen_ids,
+        );
+        assert!(
+            result.is_ok(),
+            "BLOB column should still work: {:?}",
+            result.err()
+        );
+        let sessions = result.unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].messages[0].role, "assistant");
+        assert_eq!(sessions[0].messages[0].content, "hi there");
     }
 }

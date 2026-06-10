@@ -326,13 +326,7 @@ impl CursorConnector {
         // Derive title from first message or model
         let title = all_messages
             .first()
-            .map(|m| {
-                if m.content.len() > 50 {
-                    format!("{}...", &m.content[..50])
-                } else {
-                    m.content.clone()
-                }
-            })
+            .map(|m| title_from_content(&m.content))
             .or_else(|| tabs.first().and_then(|t| t.model.clone()));
 
         let started_at = all_messages.first().and_then(|m| m.created_at);
@@ -381,13 +375,7 @@ impl CursorConnector {
             return None;
         }
 
-        let title = messages.first().map(|m| {
-            if m.content.len() > 50 {
-                format!("{}...", &m.content[..50])
-            } else {
-                m.content.clone()
-            }
-        });
+        let title = messages.first().map(|m| title_from_content(&m.content));
 
         Some(NormalizedSession {
             source: "cursor".to_string(),
@@ -399,6 +387,25 @@ impl CursorConnector {
             messages,
             metadata: serde_json::Value::Null,
         })
+    }
+}
+
+/// Maximum number of characters retained in a derived session title.
+const TITLE_MAX_CHARS: usize = 50;
+
+/// Derive a session title from message content, capped at [`TITLE_MAX_CHARS`]
+/// characters.
+///
+/// Truncation is performed on character boundaries (`chars().take(..)`) rather
+/// than byte offsets, so multibyte UTF-8 content (CJK, emoji, Cyrillic) never
+/// splits mid-codepoint. The ellipsis is appended only when the content is
+/// genuinely shortened, so titles at or under the cap are returned verbatim.
+fn title_from_content(content: &str) -> String {
+    if content.chars().count() > TITLE_MAX_CHARS {
+        let head: String = content.chars().take(TITLE_MAX_CHARS).collect();
+        format!("{head}...")
+    } else {
+        content.to_string()
     }
 }
 
@@ -541,5 +548,53 @@ mod tests {
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].messages[0].role, "assistant");
         assert_eq!(sessions[0].messages[0].content, "hi there");
+    #[test]
+    fn title_short_ascii_returned_verbatim() {
+        let content = "hello world";
+        assert_eq!(title_from_content(content), content);
+    }
+
+    #[test]
+    fn title_exactly_at_cap_returned_verbatim() {
+        let content = "a".repeat(TITLE_MAX_CHARS);
+        assert_eq!(title_from_content(&content), content);
+    }
+
+    #[test]
+    fn title_over_cap_ascii_truncated_with_ellipsis() {
+        let content = "a".repeat(TITLE_MAX_CHARS + 10);
+        let expected = format!("{}...", "a".repeat(TITLE_MAX_CHARS));
+        assert_eq!(title_from_content(&content), expected);
+    }
+
+    #[test]
+    fn title_multibyte_spanning_byte_50_does_not_panic() {
+        // Regression for issue #8: a multibyte codepoint straddling byte 50
+        // previously panicked with "byte index 50 is not a char boundary".
+        // 17 CJK chars * 3 bytes = 51 bytes, so byte 50 lands inside the 17th
+        // character. Only 17 chars, which is under the 50-char cap, so the
+        // whole string must be returned verbatim with no ellipsis.
+        let content = "字".repeat(17);
+        assert_eq!(content.len(), 51);
+        assert_eq!(title_from_content(&content), content);
+    }
+
+    #[test]
+    fn title_over_cap_multibyte_truncated_on_char_boundary() {
+        // 60 CJK chars (180 bytes) exceeds the 50-char cap; truncation must cut
+        // at the 50th character boundary, never mid-codepoint.
+        let content = "数".repeat(60);
+        let expected = format!("{}...", "数".repeat(TITLE_MAX_CHARS));
+        let title = title_from_content(&content);
+        assert_eq!(title, expected);
+        assert_eq!(title.chars().count(), TITLE_MAX_CHARS + 3);
+    }
+
+    #[test]
+    fn title_emoji_over_cap_truncated_on_char_boundary() {
+        // Emoji are 4-byte codepoints; ensure no mid-codepoint split.
+        let content = "😀".repeat(60);
+        let expected = format!("{}...", "😀".repeat(TITLE_MAX_CHARS));
+        assert_eq!(title_from_content(&content), expected);
     }
 }

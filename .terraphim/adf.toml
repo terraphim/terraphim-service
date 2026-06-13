@@ -89,6 +89,24 @@ Step 6 -- submit:
 Constraints: subscription models only; British English in any prose; no emoji;
 never use the `timeout` command; one PR per run.
 '''
+[agents.pre_check]
+kind = "shell"
+timeout_secs = 45
+script = """
+source ~/.profile 2>/dev/null || true
+export GITEA_URL=https://git.terraphim.cloud
+export PATH=$HOME/go/bin:$HOME/.cargo/bin:$HOME/.local/bin:$HOME/bin:$HOME/.bun/bin:/usr/local/bin:/usr/bin:/bin:$PATH
+READY=$(gtr ready --owner terraphim --repo terraphim-service 2>/dev/null || true)
+export READY
+python3 -c "import json,os,sys; raw=os.environ.get('READY','').strip();
+if not raw: sys.exit(0)
+try: data=json.loads(raw)
+except json.JSONDecodeError: print(raw[:2000]); sys.exit(0)
+issues=data.get('ready_issues', data if isinstance(data,list) else [])
+unblocked=[i for i in issues if not i.get('is_blocked',True)]
+print(json.dumps(unblocked[:3]) if unblocked else '', end='')"
+"""
+
 
 
 # ---------------------------------------------------------------------------

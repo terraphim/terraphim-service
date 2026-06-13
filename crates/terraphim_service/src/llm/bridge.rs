@@ -6,11 +6,9 @@
 //!
 //! NOTE: This module is currently unused because the `proxy` feature takes precedence
 //! when enabled. The code is preserved for future use when routing logic is reordered.
-#![allow(dead_code)]
 // This module is only compiled when the `llm_router` feature is enabled.
 // The parent `llm.rs` includes it under `#[cfg(feature = "llm_router")]`.
 // When proxy feature is also enabled, this is unreachable code in `build_llm_from_role`.
-#![allow(dead_code, clippy::duplicated_attributes)]
 
 use std::sync::Arc;
 
@@ -41,10 +39,7 @@ pub struct RouterBridgeLlmClient {
     router: Router,
     clients: AHashMap<String, Arc<dyn LlmClient>>,
     fallback: Arc<dyn LlmClient>,
-    #[allow(dead_code)]
     metrics: Arc<RouterMetrics>,
-    #[allow(dead_code)]
-    config: MergedRouterConfig,
 }
 
 impl RouterBridgeLlmClient {
@@ -58,7 +53,6 @@ impl RouterBridgeLlmClient {
             clients: AHashMap::new(),
             fallback,
             metrics: Arc::new(RouterMetrics::new()),
-            config,
         }
     }
 
@@ -80,9 +74,13 @@ impl RouterBridgeLlmClient {
         }
 
         let context = RoutingContext::default();
+        let started = std::time::Instant::now();
         match self.router.route(prompt, &context) {
             Ok(decision) => {
+                let elapsed_ms = started.elapsed().as_millis() as u64;
                 if let Some(client) = self.clients.get(&decision.provider.id) {
+                    self.metrics
+                        .record_routing_request(&decision.provider, elapsed_ms);
                     log::info!(
                         "Routed to provider '{}' (confidence={:.2}, reason={:?})",
                         decision.provider.id,
@@ -91,6 +89,8 @@ impl RouterBridgeLlmClient {
                     );
                     Arc::clone(client)
                 } else {
+                    self.metrics
+                        .record_routing_failure("selected provider has no registered client");
                     log::warn!(
                         "Router selected provider '{}' but no client registered, using fallback",
                         decision.provider.id
@@ -99,6 +99,8 @@ impl RouterBridgeLlmClient {
                 }
             }
             Err(e) => {
+                self.metrics
+                    .record_routing_failure(&format!("routing error: {e:?}"));
                 log::debug!("Routing failed: {:?}, using fallback", e);
                 Arc::clone(&self.fallback)
             }

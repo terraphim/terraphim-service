@@ -22,7 +22,6 @@ pub struct SummarizeOptions {
     pub max_length: usize,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct ChatOptions {
     pub max_tokens: Option<u32>,

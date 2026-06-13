@@ -247,7 +247,6 @@ impl SessionParser {
     /// # Returns
     /// A vector of `ToolInvocation` instances found in Bash tool uses
     #[must_use]
-    #[allow(dead_code)] // Will be used in Phase 2
     pub fn extract_tool_invocations(&self, matcher: &dyn PatternMatcher) -> Vec<ToolInvocation> {
         self.entries
             .par_iter()
@@ -331,7 +330,6 @@ impl SessionParser {
 
     /// Get entry count for statistics
     /// Used in integration tests
-    #[allow(dead_code)]
     #[must_use]
     pub fn entry_count(&self) -> usize {
         self.entries.len()
@@ -345,7 +343,6 @@ impl SessionParser {
 
     /// Find entries within a time window
     /// Used in integration tests
-    #[allow(dead_code)]
     #[must_use]
     pub fn entries_in_window(
         &self,
@@ -369,7 +366,6 @@ impl SessionParser {
 
     /// Find all unique agent types used in this session
     /// Used in integration tests
-    #[allow(dead_code)]
     #[must_use]
     pub fn get_agent_types(&self) -> Vec<String> {
         let agents = self.extract_agent_invocations();
@@ -385,7 +381,6 @@ impl SessionParser {
 
     /// Build a timeline of events for visualization
     /// Used in integration tests
-    #[allow(dead_code)]
     #[must_use]
     pub fn build_timeline(&self) -> Vec<TimelineEvent> {
         let mut events = Vec::new();
@@ -419,7 +414,6 @@ impl SessionParser {
 }
 
 /// Helper function to extract tool invocations from Bash command content
-#[allow(dead_code)] // Will be used in Phase 2
 fn extract_from_bash_command(
     entry: &SessionEntry,
     content: &[ContentBlock],
@@ -475,7 +469,6 @@ fn extract_from_bash_command(
 }
 
 /// Used in integration tests and public API
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct TimelineEvent {
     pub timestamp: jiff::Timestamp,
@@ -486,7 +479,6 @@ pub struct TimelineEvent {
 }
 
 /// Used in integration tests and public API
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum TimelineEventType {
     AgentInvocation,

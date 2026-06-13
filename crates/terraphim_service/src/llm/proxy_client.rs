@@ -22,7 +22,6 @@ pub struct ProxyClientConfig {
     /// Request timeout (default: 60 seconds)
     pub timeout_secs: u64,
     /// Enable request/response logging
-    #[allow(dead_code)]
     pub log_requests: bool,
 }
 
@@ -60,16 +59,13 @@ impl ProxyLlmClient {
         Self { config, http }
     }
 
-    /// Check if external proxy mode is active
-    #[allow(dead_code)]
+    /// Check if external proxy mode is active.
+    ///
+    /// Test-support helper: only compiled for tests, as production code routes
+    /// through the `LlmClient` trait rather than querying the concrete type.
+    #[cfg(test)]
     pub fn is_proxy_mode(&self) -> bool {
         true
-    }
-
-    /// Get client name for logging (inherent method for tests)
-    #[allow(dead_code)]
-    pub fn name(&self) -> &'static str {
-        "external_proxy_llm"
     }
 }
 
@@ -92,6 +88,10 @@ impl LlmClient for ProxyLlmClient {
             "max_tokens": opts.max_length.min(1024),
             "temperature": 0.3,
         });
+
+        if self.config.log_requests {
+            debug!("Proxy summarize request: {}", request);
+        }
 
         let response = match self
             .http
@@ -130,6 +130,10 @@ impl LlmClient for ProxyLlmClient {
                 )));
             }
         };
+
+        if self.config.log_requests {
+            debug!("Proxy summarize response: {}", text);
+        }
 
         match serde_json::from_str::<Value>(&text) {
             Ok(json) => {
@@ -221,6 +225,10 @@ impl LlmClient for ProxyLlmClient {
             "temperature": opts.temperature.unwrap_or(0.7),
             "max_tokens": opts.max_tokens.unwrap_or(1024),
         });
+
+        if self.config.log_requests {
+            debug!("Proxy chat request: {}", request);
+        }
 
         let response = match self
             .http

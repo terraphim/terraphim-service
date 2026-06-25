@@ -6,6 +6,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
+use ahash::AHashMap;
 use terraphim_middleware::feedback_loop::{
     record_graph_query, record_learning_application, FeedbackConfig, GraphTouchStore,
 };
@@ -91,6 +92,38 @@ fn create_query(term: &str) -> SearchQuery {
         include_pinned: false,
         min_quality: None,
     }
+}
+
+fn create_query_with_pinned(term: &str, include_pinned: bool) -> SearchQuery {
+    SearchQuery {
+        search_term: NormalizedTermValue::from(term),
+        search_terms: None,
+        operator: None,
+        skip: None,
+        limit: Some(10),
+        role: Some(RoleName::new("test")),
+        layer: Layer::default(),
+        include_pinned,
+        min_quality: None,
+    }
+}
+
+/// Create a graph where a known node ID can be pinned.
+///
+/// Uses a fixed node ID (1001) for the "rust" thesaurus entry so the test can
+/// pin that node via `load_trigger_index` and verify the trigger fallback path.
+fn create_graph_with_known_node_id() -> (RoleGraph, u64) {
+    let pinned_node_id: u64 = 1001;
+    let mut thesaurus = Thesaurus::new("test-pinned".to_string());
+    thesaurus.insert(
+        NormalizedTermValue::from("rust"),
+        NormalizedTerm::new(
+            pinned_node_id,
+            NormalizedTermValue::from("rust programming language"),
+        ),
+    );
+    let graph = RoleGraph::new_sync(RoleName::new("test-pinned"), thesaurus).unwrap();
+    (graph, pinned_node_id)
 }
 
 #[test]
@@ -252,4 +285,75 @@ fn test_feedback_loop_only_touches_learning_documents_and_updates_rank() {
         .unwrap();
     let boosted_rank = graph.get_document(&indexed.id).unwrap().rank;
     assert!(boosted_rank > original_rank);
+}
+
+/// Verify that when `include_pinned` is true, `query_with_learnings` routes through
+/// `query_graph_with_trigger_fallback` so that pinned nodes surface documents even
+/// when the query text has no Aho-Corasick match.
+///
+/// Setup:
+///   1. A thesaurus has "rust" mapped to a known node ID.
+///   2. A document containing the word "rust" is indexed — it becomes linked to that node.
+///   3. `load_trigger_index` marks that node ID as pinned.
+///   4. A query using a nonsense term ("xyzzy_no_match") produces no Aho-Corasick hits.
+///
+/// Expected behaviour:
+///   - `include_pinned = false`: 0 results (no AC match, pinned not consulted).
+///   - `include_pinned = true`: the "rust" document is returned via the pinned node.
+#[test]
+fn test_include_pinned_routes_through_trigger_fallback() {
+    let (mut graph, pinned_node_id) = create_graph_with_known_node_id();
+
+    // Index a document that the Aho-Corasick automata will link to node `pinned_node_id`
+    let doc = Document {
+        id: "pinned-rust-guide".to_string(),
+        url: "file:///tmp/pinned-rust-guide.md".to_string(),
+        title: "Pinned Rust Guide".to_string(),
+        body: "rust programming language essentials".to_string(),
+        description: None,
+        summarization: None,
+        stub: None,
+        tags: Some(vec!["rust".to_string()]),
+        rank: Some(50),
+        source_haystack: None,
+        doc_type: terraphim_types::DocumentType::KgEntry,
+        synonyms: None,
+        route: None,
+        priority: None,
+        quality_score: None,
+    };
+    graph.insert_document(&doc.id.clone(), doc);
+
+    // Mark the node as pinned so it is always included when include_pinned=true
+    graph.load_trigger_index(AHashMap::new(), vec![pinned_node_id], 0.3);
+
+    // A query that has no Aho-Corasick match — only pinned nodes can surface results
+    let query_without_pinned = create_query_with_pinned("xyzzy_no_match", false);
+    let query_with_pinned = create_query_with_pinned("xyzzy_no_match", true);
+
+    let results_without_pinned = query_with_learnings(&graph, &query_without_pinned, false);
+    assert!(
+        results_without_pinned.is_empty(),
+        "Expected no results when include_pinned=false and query has no AC match, \
+         got {} result(s)",
+        results_without_pinned.len()
+    );
+
+    let results_with_pinned = query_with_learnings(&graph, &query_with_pinned, false);
+    assert!(
+        !results_with_pinned.is_empty(),
+        "Expected the pinned document to appear when include_pinned=true, \
+         but got no results. The include_pinned flag is not wired through to \
+         query_graph_with_trigger_fallback."
+    );
+    assert!(
+        results_with_pinned
+            .iter()
+            .any(|d| d.id == "pinned-rust-guide"),
+        "Expected 'pinned-rust-guide' in results, got: {:?}",
+        results_with_pinned
+            .iter()
+            .map(|d| &d.id)
+            .collect::<Vec<_>>()
+    );
 }

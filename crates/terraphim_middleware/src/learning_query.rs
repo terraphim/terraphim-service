@@ -5,10 +5,19 @@
 use terraphim_rolegraph::RoleGraph;
 use terraphim_types::{IndexedDocument, SearchQuery};
 
-/// Query the graph including learning documents
+/// Query the graph including learning documents.
 ///
 /// Returns all documents (regular + learning) whose nodes match the query,
 /// sorted by rank.
+///
+/// When `query.include_pinned` is `true`, the search is routed through
+/// `query_graph_with_trigger_fallback` which activates the TF-IDF trigger
+/// index and always includes pinned nodes in the result set. This allows
+/// documents linked to pinned nodes to surface even when the query term
+/// has no Aho-Corasick match in the thesaurus.
+///
+/// When `query.include_pinned` is `false`, the search uses the standard
+/// `query_graph` path which relies solely on Aho-Corasick matching.
 pub fn query_with_learnings(
     graph: &RoleGraph,
     query: &SearchQuery,
@@ -17,7 +26,13 @@ pub fn query_with_learnings(
     let query_text = query.search_term.as_str();
     let mut merged = std::collections::HashMap::new();
 
-    if let Ok(results) = graph.query_graph(query_text, query.skip, query.limit) {
+    let graph_results = if query.include_pinned {
+        graph.query_graph_with_trigger_fallback(query_text, query.skip, query.limit, true)
+    } else {
+        graph.query_graph(query_text, query.skip, query.limit)
+    };
+
+    if let Ok(results) = graph_results {
         for (id, doc) in results {
             merged.insert(id, doc);
         }

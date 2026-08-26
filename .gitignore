@@ -1,2 +1,5 @@
 /target
 Cargo.lock
+
+# Local cachebro sqlite (must never be committed)
+.cachebro/

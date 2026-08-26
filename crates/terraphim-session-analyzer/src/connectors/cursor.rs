@@ -548,6 +548,8 @@ mod tests {
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].messages[0].role, "assistant");
         assert_eq!(sessions[0].messages[0].content, "hi there");
+    }
+
     #[test]
     fn title_short_ascii_returned_verbatim() {
         let content = "hello world";

@@ -90,3 +90,49 @@ Constraints: subscription models only; British English in any prose; no emoji;
 never use the `timeout` command; one PR per run.
 '''
 
+
+# ---------------------------------------------------------------------------
+# Repo-local structured PR review (linear-to-pr style) — added 2026-08-12 (ADF enablement).
+# Minimum flow #2. Backed by .terraphim/bin/structured-pr-review.sh (9-dimension
+# checklist, severity-tiered P0/P1/P2, confidence score). Disciplined engineering
+# is provided by implementation-swarm above.
+# ---------------------------------------------------------------------------
+[[agents]]
+name = "disciplined-pr-review"
+layer = "Core"
+cli_tool = ".terraphim/bin/structured-pr-review.sh"
+task = "Run structural PR review with 9-dimension checklist on the active PR. Posts review comment with confidence score and severity-tiered findings."
+project = "terraphim-service"
+schedule = "on_demand"
+
+[[agents]]
+name = "disciplined-research"
+layer = "Core"
+cli_tool = "echo"
+task = "Research phase: analyze issue, understand context, identify affected code paths"
+project = "terraphim-service"
+schedule = "on_demand"
+
+[[agents]]
+name = "disciplined-specification"
+layer = "Core"
+cli_tool = "echo"
+task = "Specification phase: define acceptance criteria, test cases, and implementation plan"
+project = "terraphim-service"
+schedule = "on_demand"
+
+[[agents]]
+name = "disciplined-implementation"
+layer = "Core"
+cli_tool = "echo"
+task = "Implementation phase: write code and tests, run quality gates"
+project = "terraphim-service"
+schedule = "on_demand"
+
+[[agents]]
+name = "disciplined-quality-evaluation"
+layer = "Core"
+cli_tool = "echo"
+task = "Quality phase: run test suite, clippy, fmt, verify acceptance criteria"
+project = "terraphim-service"
+schedule = "on_demand"

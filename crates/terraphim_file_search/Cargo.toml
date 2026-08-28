@@ -1,6 +1,6 @@
 [package]
 name = "terraphim_file_search"
-version.workspace = true
+version = "1.21.0"
 edition.workspace = true
 authors = ["Terraphim Contributors"]
 description = "Knowledge-graph scored file search integration for Terraphim AI"
@@ -12,8 +12,8 @@ license = "Apache-2.0"
 readme = "../../README.md"
 
 [dependencies]
-terraphim_automata = { version = "1.19.2" }
-terraphim_types = { version = "1.15.0" }
+terraphim_automata = { version = "1.21.0", registry = "terraphim" }
+terraphim_types = { version = "1.21.0", registry = "terraphim" }
 fff-search = { version = "0.8.4" }
 
 ahash = "0.8"

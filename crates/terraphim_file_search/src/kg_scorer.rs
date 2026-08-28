@@ -39,13 +39,13 @@ impl KgPathScorer {
 
     /// Calculate the KG boost for a resolved relative file path.
     pub fn score_path(&self, relative_path: &str) -> i32 {
-        let thesaurus = self.thesaurus.read().clone();
+        let thesaurus = self.thesaurus.read();
 
         if thesaurus.is_empty() {
             return 0;
         }
 
-        let matches = match find_matches(relative_path, thesaurus, false) {
+        let matches = match find_matches(relative_path, &thesaurus, false) {
             Ok(m) => m,
             Err(err) => {
                 tracing::warn!(

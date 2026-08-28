@@ -268,7 +268,7 @@ impl TerraphimService {
             };
             log::info!("📝 Document body preview (first 200 chars): {}", preview);
 
-            match replace_matches(&document.body, kg_thesaurus, LinkType::MarkdownLinks) {
+            match replace_matches(&document.body, &kg_thesaurus, LinkType::MarkdownLinks) {
                 Ok(processed_bytes) => {
                     match String::from_utf8(processed_bytes) {
                         Ok(processed_content) => {

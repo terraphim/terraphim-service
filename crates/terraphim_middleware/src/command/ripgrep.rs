@@ -117,10 +117,7 @@ pub enum Data {
 /// Gets the path from a `Data` type.
 fn as_path(data: &Option<Data>) -> Option<String> {
     // Return immediately if the data is None
-    let data = match data {
-        Some(data) => data,
-        None => return None,
-    };
+    let data = data.as_ref()?;
     match data {
         Data::Text { text } => Some(text.clone()),
         _ => None,
@@ -279,7 +276,7 @@ impl RipgrepCommand {
             .collect();
 
         log::debug!("Running ripgrep with args: {:?}", args);
-        log::info!("🚀 Executing: {} {}", &self.command, args.join(" "));
+        log::info!("🚀 Executing: {} {}", self.command, args.join(" "));
 
         let mut child = Command::new(&self.command)
             .args(args)

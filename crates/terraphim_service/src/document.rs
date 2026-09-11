@@ -46,7 +46,7 @@ impl TerraphimService {
         log::debug!(
             "📄 Document preview: {} characters starting with: {}",
             document.body.len(),
-            &document.body.chars().take(100).collect::<String>()
+            document.body.chars().take(100).collect::<String>()
         );
 
         // Load thesaurus for the role

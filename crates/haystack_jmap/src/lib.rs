@@ -185,7 +185,7 @@ impl JMAPClient {
 
         let session_response = client
             .get(session_url)
-            .header("Authorization", format!("Bearer {}", &access_token))
+            .header("Authorization", format!("Bearer {}", access_token))
             .send()
             .await
             .context("Failed to connect to JMAP server")?;

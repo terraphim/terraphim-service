@@ -8,9 +8,9 @@ fn test_ollama_summarization_configuration() {
     println!("==========================================");
 
     let config_files = vec![
-        "../../terraphim_server/default/combined_roles_config.json",
-        "../../terraphim_server/default/rust_engineer_config.json",
-        "../../terraphim_server/default/terraphim_engineer_config.json",
+        "fixtures/combined_roles_config.json",
+        "fixtures/rust_engineer_config.json",
+        "fixtures/terraphim_engineer_config.json",
     ];
 
     for config_path in config_files {
@@ -171,7 +171,7 @@ fn test_role_specific_system_prompts() {
     println!("🧪 Role-Specific System Prompts Test");
     println!("===================================");
 
-    let config_path = "../../terraphim_server/default/combined_roles_config.json";
+    let config_path = "fixtures/combined_roles_config.json";
 
     match fs::read_to_string(config_path) {
         Ok(config_content) => {

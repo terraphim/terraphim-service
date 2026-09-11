@@ -10,7 +10,7 @@ fn create_test_role() -> Role {
     role.relevance_function = RelevanceFunction::TitleScorer;
     role.theme = "default".to_string();
     role.haystacks = vec![Haystack {
-        location: "../../terraphim_server/fixtures/haystack".to_string(),
+        location: "fixtures/haystack".to_string(),
         service: ServiceType::Ripgrep,
         read_only: true,
         fetch_content: false,
@@ -33,7 +33,7 @@ fn create_test_config() -> terraphim_config::Config {
 async fn test_fff_indexer_basic() {
     let _config = create_test_config();
     let haystack = Haystack {
-        location: "../../terraphim_server/fixtures/haystack".to_string(),
+        location: "fixtures/haystack".to_string(),
         service: ServiceType::Ripgrep,
         read_only: true,
         fetch_content: false,
@@ -54,7 +54,7 @@ async fn test_fff_indexer_basic() {
 async fn test_fff_search_graph() {
     let _config = create_test_config();
     let haystack = Haystack {
-        location: "../../terraphim_server/fixtures/haystack".to_string(),
+        location: "fixtures/haystack".to_string(),
         service: ServiceType::Ripgrep,
         read_only: true,
         fetch_content: false,
@@ -75,7 +75,7 @@ async fn test_fff_search_graph() {
 async fn test_fff_search_machine_learning() {
     let _config = create_test_config();
     let haystack = Haystack {
-        location: "../../terraphim_server/fixtures/haystack".to_string(),
+        location: "fixtures/haystack".to_string(),
         service: ServiceType::Ripgrep,
         read_only: true,
         fetch_content: false,
@@ -115,7 +115,7 @@ async fn test_fff_role_configuration() {
 #[serial]
 async fn test_fff_indexer_performance() {
     let haystack = Haystack {
-        location: "../../terraphim_server/fixtures/haystack".to_string(),
+        location: "fixtures/haystack".to_string(),
         service: ServiceType::Ripgrep,
         read_only: true,
         fetch_content: false,
@@ -190,7 +190,7 @@ async fn test_fff_with_kg_scorer() {
     use terraphim_types::{NormalizedTerm, NormalizedTermValue, Thesaurus};
 
     let haystack = Haystack {
-        location: "../../terraphim_server/fixtures/haystack".to_string(),
+        location: "fixtures/haystack".to_string(),
         service: ServiceType::Ripgrep,
         read_only: true,
         fetch_content: false,
@@ -229,7 +229,7 @@ async fn test_fff_with_kg_scorer() {
 async fn test_fff_default_has_no_kg_scorer() {
     let indexer = FffIndexer::default();
     let haystack = Haystack {
-        location: "../../terraphim_server/fixtures/haystack".to_string(),
+        location: "fixtures/haystack".to_string(),
         service: ServiceType::Ripgrep,
         read_only: true,
         fetch_content: false,
@@ -329,7 +329,7 @@ async fn test_fff_with_kg_scorer_uses_stateful_path() {
     extra_params.insert("extensions".to_string(), "md".to_string());
 
     let haystack = Haystack {
-        location: "../../terraphim_server/fixtures/haystack".to_string(),
+        location: "fixtures/haystack".to_string(),
         service: ServiceType::Ripgrep,
         read_only: true,
         fetch_content: false,
@@ -427,9 +427,7 @@ fn create_terraphim_graph_role_with_haystack(location: String) -> Role {
 }
 
 fn create_terraphim_graph_role() -> Role {
-    create_terraphim_graph_role_with_haystack(
-        "../../terraphim_server/fixtures/haystack".to_string(),
-    )
+    create_terraphim_graph_role_with_haystack("fixtures/haystack".to_string())
 }
 
 #[tokio::test]
@@ -585,7 +583,7 @@ async fn test_search_haystacks_kg_scorer_preserves_thesaurus_data() {
     let indexer = FffIndexer::default().with_kg_scorer(scorer);
 
     let haystack = Haystack {
-        location: "../../terraphim_server/fixtures/haystack".to_string(),
+        location: "fixtures/haystack".to_string(),
         service: ServiceType::Ripgrep,
         read_only: true,
         fetch_content: false,

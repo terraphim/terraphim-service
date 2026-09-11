@@ -19,10 +19,10 @@ async fn test_rolegraph_knowledge_graph_ranking() {
     env_logger::init();
 
     // 1. Setup test environment with correct paths
-    // Navigate up from middleware crate to project root
-    let current_dir = std::env::current_dir().unwrap();
-    let project_root = current_dir.parent().unwrap().parent().unwrap(); // Go up two levels from crates/terraphim_middleware
-    let docs_src_path = project_root.join("docs/src");
+    // The KG fixture is vendored crate-locally (Refs #20): this repo has no
+    // docs/src/kg -- that path only exists in the terraphim-ai layout these
+    // tests were ported from.
+    let docs_src_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures");
     let kg_path = docs_src_path.join("kg");
 
     // Verify that the test files exist
@@ -199,15 +199,8 @@ async fn test_rolegraph_knowledge_graph_ranking() {
 #[tokio::test]
 #[serial]
 async fn test_build_thesaurus_from_kg_files() {
-    let current_dir = std::env::current_dir().unwrap();
-    let project_root = current_dir.parent().unwrap().parent().unwrap();
-    let kg_path = project_root.join("docs/src/kg");
-
-    // Skip test if kg directory doesn't exist
-    if !kg_path.exists() {
-        println!("Skipping test - kg directory not found: {:?}", kg_path);
-        return;
-    }
+    // Vendored crate-local fixture (Refs #20); always present.
+    let kg_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/kg");
 
     let logseq_builder = Logseq::default();
     let thesaurus = logseq_builder

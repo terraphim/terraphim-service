@@ -18,10 +18,10 @@ async fn test_knowledge_graph_ranking_expansion() {
     env_logger::init();
 
     // 1. Setup test environment with correct paths
-    let current_dir = std::env::current_dir().unwrap();
-    let project_root = current_dir.parent().unwrap().parent().unwrap();
-    let docs_src_path = project_root.join("docs/src");
-    let original_kg_path = docs_src_path.join("kg");
+    // The KG fixture is vendored crate-locally (Refs #20): this repo has no
+    // docs/src/kg -- that path only exists in the terraphim-ai layout these
+    // tests were ported from.
+    let original_kg_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/kg");
 
     // Verify that the test files exist
     assert!(

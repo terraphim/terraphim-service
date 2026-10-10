@@ -53,7 +53,11 @@ async fn main() -> Result<()> {
                 println!("\n### Content:\n");
 
                 for body_part in &email.text_body {
-                    if let Some(body_value) = email.body_values.get(&body_part.part_id) {
+                    let body_value = body_part
+                        .part_id
+                        .as_ref()
+                        .and_then(|part_id| email.body_values.get(part_id));
+                    if let Some(body_value) = body_value {
                         for paragraph in body_value.value.split('\n') {
                             if !paragraph.trim().is_empty() {
                                 println!("{}\n", paragraph.trim());

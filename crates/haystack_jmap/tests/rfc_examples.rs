@@ -675,10 +675,12 @@ fn rfc8621_4_6_mailbox_move_patch_removes_and_adds_in_one_call() {
     assert_eq!(call.1["update"]["M1"], published);
 }
 
-// RFC 8621 section 4.10: the draft creation example carries mailboxIds,
-// keywords, from, subject, sentAt, bodyStructure and bodyValues.
+// RFC 8621 section 4.10 and section 4.1.4: a create supplies the text as a
+// createable `bodyStructure` plus `bodyValues`. `textBody` and `htmlBody` are
+// properties the server derives for `Email/get` responses, so sending them in a
+// create is rejected with `invalidProperties`.
 #[test]
-fn rfc8621_4_10_email_set_create_renders_body_values_and_keywords() {
+fn rfc8621_4_10_email_set_create_renders_a_createable_body_structure() {
     let published: Value = json!({
       "mailboxIds": { "2ea1ca41b38e": true },
       "keywords": { "$seen": true, "$draft": true },
@@ -690,9 +692,10 @@ fn rfc8621_4_10_email_set_create_renders_body_values_and_keywords() {
           "value": "I have the most brilliant plan."
         }
       },
-      "textBody": [
-        { "partId": "text", "type": "text/plain" }
-      ]
+      "bodyStructure": {
+        "partId": "text",
+        "type": "text/plain"
+      }
     });
 
     let create = EmailCreate::new_text(
@@ -711,6 +714,21 @@ fn rfc8621_4_10_email_set_create_renders_body_values_and_keywords() {
     .sent_at("2018-07-10T11:03:11+10:00");
 
     assert_eq!(create.to_json(), published);
+
+    // The derived convenience properties are never part of a create.
+    let rendered = create.to_json();
+    assert!(rendered.get("textBody").is_none());
+    assert!(rendered.get("htmlBody").is_none());
+    assert_eq!(
+        rendered["bodyStructure"]["partId"],
+        rendered["bodyValues"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .next()
+            .unwrap()
+            .clone()
+    );
 
     let call = email_set_create_call("ue150411c", std::slice::from_ref(&create), "0");
     assert_eq!(call.1["create"]["k192"], published);
@@ -1033,6 +1051,37 @@ fn rfc8620_3_6_2_method_level_error_is_surfaced() {
     let error = response.error().unwrap();
     assert_eq!(error.type_, "unknownMethod");
     assert!(response.result("0").is_err());
+}
+
+// RFC 8621 section 4.2: a changes result splits into created, updated and
+// destroyed. Only created and updated IDs can be fetched; a destroyed message
+// has no data left to get.
+#[test]
+fn rfc8621_4_2_changes_fetchable_ids_exclude_destroyed() {
+    let changes = haystack_jmap::types::EmailChanges {
+        account_id: "u1".to_string(),
+        new_state: "s2".to_string(),
+        old_state: "s1".to_string(),
+        cannot_calculate_changes: false,
+        created: vec!["M1".to_string()],
+        updated: vec!["M2".to_string(), "M3".to_string()],
+        destroyed: vec!["M4".to_string()],
+        total: None,
+    };
+
+    assert_eq!(
+        changes.fetchable_ids(),
+        vec!["M1".to_string(), "M2".to_string(), "M3".to_string()]
+    );
+    assert_eq!(
+        changes.affected_ids(),
+        vec![
+            "M1".to_string(),
+            "M2".to_string(),
+            "M3".to_string(),
+            "M4".to_string()
+        ]
+    );
 }
 
 // The compact form helper keeps the assertions readable; this guards against

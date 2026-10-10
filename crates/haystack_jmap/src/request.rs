@@ -708,9 +708,12 @@ impl EmailCreate {
             "bodyValues".to_string(),
             json!({ body_part_id: { "value": self.text_body } }),
         );
+        // `bodyStructure` is the createable form; `textBody` and `htmlBody` are
+        // properties the server derives in `Email/get` responses, so a create
+        // that supplies them is rejected with `invalidProperties`.
         create.insert(
-            "textBody".to_string(),
-            json!([{ "partId": body_part_id, "type": "text/plain" }]),
+            "bodyStructure".to_string(),
+            json!({ "partId": body_part_id, "type": "text/plain" }),
         );
         Value::Object(create)
     }

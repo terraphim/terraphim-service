@@ -412,6 +412,19 @@ pub struct EmailChanges {
 }
 
 impl EmailChanges {
+    /// Returns the IDs a re-fetch should ask for: created and updated, without
+    /// the destroyed ones.
+    ///
+    /// This is the ID list [`crate::JMAPClient::fetch_changed_emails`] builds.
+    /// Destroyed IDs are excluded because [`crate::JMAPClient::get_emails`] on a
+    /// deleted message merely reports it in `notFound`.
+    pub fn fetchable_ids(&self) -> Vec<String> {
+        let mut ids = Vec::with_capacity(self.created.len() + self.updated.len());
+        ids.extend(self.created.iter().cloned());
+        ids.extend(self.updated.iter().cloned());
+        ids
+    }
+
     /// Returns every ID that a re-fetch should ask for, in the order created,
     /// updated, destroyed.
     pub fn affected_ids(&self) -> Vec<String> {

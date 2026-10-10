@@ -11,6 +11,8 @@
 //!   mailbox.
 //! - [`JMAPClient::email_changes`] for a durable `Email/changes` cursor backed
 //!   by a [`StateCursorStore`].
+//! - [`JMAPClient::fetch_changed_emails_in_mailbox`] for the mailbox-scoped
+//!   subset of those changes, because `Email/changes` itself is account-wide.
 //! - [`JMAPClient::get_emails_with_options`] for `Email/get` with threading,
 //!   recipients, keywords and selected headers.
 //! - [`JMAPClient::update_emails`], [`JMAPClient::mark_seen`] and

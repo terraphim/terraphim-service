@@ -45,7 +45,12 @@ impl KgPathScorer {
             return 0;
         }
 
-        let matches = match find_matches(relative_path, &thesaurus, false) {
+        // `find_matches` rejects matches that sit inside a word, and treats `_`
+        // as a word character. A path component like `terraphim_automata` would
+        // therefore never match the concept `automata`. Normalise the path
+        // separators to spaces so every component is matched as a whole word.
+        let haystack = relative_path.replace(['/', '\\', '_', '-', '.'], " ");
+        let matches = match find_matches(&haystack, &thesaurus, false) {
             Ok(m) => m,
             Err(err) => {
                 tracing::warn!(

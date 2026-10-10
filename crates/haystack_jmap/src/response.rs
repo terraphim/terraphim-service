@@ -360,23 +360,41 @@ impl SetResult {
     /// This lets a caller treat a partially applied change as a failure without
     /// inspecting the individual maps first.
     pub fn into_result(self) -> Result<Self> {
+        self.into_result_for("*/set")
+    }
+
+    /// Returns an error naming `method` when the server rejected anything in
+    /// this call.
+    ///
+    /// The `notCreated`, `notUpdated` and `notDestroyed` maps are populated on a
+    /// 200 response, so a caller that ignores them mistakes a rejected
+    /// operation for a successful one. The high-level send path uses the method
+    /// name to say which part of the request failed, for example
+    /// `EmailSubmission/set`.
+    pub fn into_result_for(self, method: &str) -> Result<Self> {
         if let Some(not_created) = &self.not_created
             && let Some((creation_id, error)) = not_created.iter().next()
         {
             return Err(anyhow!(
-                "JMAP create '{creation_id}' failed: {}",
+                "JMAP {method} create '{creation_id}' failed: {}",
                 error.type_
             ));
         }
         if let Some(not_updated) = &self.not_updated
             && let Some((id, error)) = not_updated.iter().next()
         {
-            return Err(anyhow!("JMAP update '{id}' failed: {}", error.type_));
+            return Err(anyhow!(
+                "JMAP {method} update '{id}' failed: {}",
+                error.type_
+            ));
         }
         if let Some(not_destroyed) = &self.not_destroyed
             && let Some((id, error)) = not_destroyed.iter().next()
         {
-            return Err(anyhow!("JMAP destroy '{id}' failed: {}", error.type_));
+            return Err(anyhow!(
+                "JMAP {method} destroy '{id}' failed: {}",
+                error.type_
+            ));
         }
         Ok(self)
     }

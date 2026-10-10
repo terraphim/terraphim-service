@@ -1093,3 +1093,332 @@ fn method_call_serialises_compactly_without_padding() {
     assert!(!text.contains('\n'));
     assert!(text.starts_with("[\"Email/query\","));
 }
+
+/// The RFC 8621 section 4.10 create result the send path accepts: the server
+/// assigned an id to the `reply` creation.
+fn accepted_create_result() -> Value {
+    json!({
+        "accountId": "u1",
+        "oldState": "1",
+        "newState": "2",
+        "created": {
+            "reply": {
+                "id": "M-created",
+                "blobId": "G-1",
+                "threadId": "T-1",
+                "size": 512
+            }
+        }
+    })
+}
+
+/// The RFC 8621 section 7.5.1 submission result the send path accepts.
+fn accepted_submit_result() -> Value {
+    json!({
+        "accountId": "u1",
+        "oldState": "2",
+        "newState": "3",
+        "created": { "submission": { "id": "ES-1" } }
+    })
+}
+
+/// The RFC 8620 section 5.3 update result for the original-message flag patch.
+fn accepted_flag_result() -> Value {
+    json!({
+        "accountId": "u1",
+        "oldState": "2",
+        "newState": "3",
+        "updated": { "M-original": null }
+    })
+}
+
+/// Parses a whole response envelope from a JSON document.
+fn response_from_json(document: &str) -> JMAPResponse {
+    serde_json::from_str(document).unwrap()
+}
+
+// RFC 8620 section 5.3: a `*/set` call answers 200 while rejecting the record
+// in notCreated. send_reply must surface that as an error rather than a success
+// with no ids.
+#[test]
+fn rfc8620_5_3_send_reply_rejects_a_message_the_server_refused_to_create() {
+    let outcome = haystack_jmap::client::reply_outcome_from_response(&response_from_json(
+        r#"{
+          "methodResponses": [
+            ["Email/set", {
+              "accountId": "u1",
+              "oldState": "1",
+              "newState": "1",
+              "notCreated": {
+                "reply": {
+                  "type": "invalidProperties",
+                  "description": "The bodyStructure is invalid",
+                  "properties": ["bodyStructure"]
+                }
+              }
+            }, "create"],
+            ["EmailSubmission/set", {
+              "accountId": "u1",
+              "oldState": "1",
+              "newState": "1",
+              "created": { "submission": { "id": "ES-1" } }
+            }, "submit"]
+          ],
+          "sessionState": "s-1"
+        }"#,
+    ));
+
+    let error = outcome.expect_err("a rejected create must not report success");
+    let message = error.to_string();
+    assert!(message.contains("Email/set"), "error was: {message}");
+    assert!(message.contains("reply"), "error was: {message}");
+    assert!(
+        message.contains("invalidProperties"),
+        "error was: {message}"
+    );
+}
+
+// RFC 8621 section 7.5.1: a submission the server refuses (forbiddenToSend)
+// must fail the send even though the draft was created.
+#[test]
+fn rfc8621_7_5_1_send_reply_rejects_a_message_the_server_refused_to_submit() {
+    let outcome = haystack_jmap::client::reply_outcome_from_response(&response_from_json(
+        r#"{
+          "methodResponses": [
+            ["Email/set", {
+              "accountId": "u1",
+              "oldState": "1",
+              "newState": "2",
+              "created": {
+                "reply": { "id": "M-created", "blobId": "G-1", "threadId": "T-1", "size": 512 }
+              }
+            }, "create"],
+            ["EmailSubmission/set", {
+              "accountId": "u1",
+              "oldState": "2",
+              "newState": "2",
+              "notCreated": {
+                "submission": {
+                  "type": "forbiddenToSend",
+                  "description": "Sending is blocked for this account."
+                }
+              }
+            }, "submit"]
+          ],
+          "sessionState": "s-1"
+        }"#,
+    ));
+
+    let error = outcome.expect_err("a rejected submission must not report success");
+    let message = error.to_string();
+    assert!(
+        message.contains("EmailSubmission/set"),
+        "error was: {message}"
+    );
+    assert!(message.contains("submission"), "error was: {message}");
+    assert!(message.contains("forbiddenToSend"), "error was: {message}");
+}
+
+// RFC 8620 section 5.3: the original message is flagged with a separate
+// Email/set call; a rejection there fails the send even when the draft and the
+// submission succeeded.
+#[test]
+fn rfc8620_5_3_send_reply_rejects_a_message_the_server_refused_to_update() {
+    let outcome = haystack_jmap::client::reply_outcome_from_response(&response_from_json(
+        r#"{
+          "methodResponses": [
+            ["Email/set", {
+              "accountId": "u1",
+              "oldState": "1",
+              "newState": "2",
+              "created": {
+                "reply": { "id": "M-created", "blobId": "G-1", "threadId": "T-1", "size": 512 }
+              }
+            }, "create"],
+            ["EmailSubmission/set", {
+              "accountId": "u1",
+              "oldState": "2",
+              "newState": "3",
+              "created": { "submission": { "id": "ES-1" } }
+            }, "submit"],
+            ["Email/set", {
+              "accountId": "u1",
+              "oldState": "3",
+              "newState": "3",
+              "notUpdated": {
+                "M-original": {
+                  "type": "notFound",
+                  "description": "The message no longer exists"
+                }
+              }
+            }, "flag"]
+          ],
+          "sessionState": "s-1"
+        }"#,
+    ));
+
+    let error = outcome.expect_err("a rejected flag update must not report success");
+    let message = error.to_string();
+    assert!(message.contains("M-original"), "error was: {message}");
+    assert!(message.contains("notFound"), "error was: {message}");
+}
+
+// The happy path: every method reports the record it applied, so the two ids
+// are present and the original flag update is accepted.
+#[test]
+fn send_reply_returns_the_created_and_submitted_ids_on_success() {
+    let outcome =
+        haystack_jmap::client::reply_outcome_from_response(&response_from_json(&compact(&json!({
+            "methodResponses": [
+                ["Email/set", accepted_create_result(), "create"],
+                ["EmailSubmission/set", accepted_submit_result(), "submit"],
+                ["Email/set", accepted_flag_result(), "flag"]
+            ],
+            "sessionState": "s-1"
+        }))))
+        .expect("a fully applied reply should succeed");
+
+    assert_eq!(outcome.sent_email_id.as_deref(), Some("M-created"));
+    assert_eq!(outcome.submission_id.as_deref(), Some("ES-1"));
+    assert!(outcome.is_complete());
+    assert_eq!(
+        outcome.created.new_state, "2",
+        "the create result is kept for callers"
+    );
+    assert_eq!(
+        outcome.submitted.created_record("submission").unwrap().id,
+        "ES-1"
+    );
+}
+
+// A reply without an original-message id skips the flag call, so only the two
+// mandatory methods are read.
+#[test]
+fn send_reply_without_an_original_skips_the_flag_call() {
+    let create = accepted_create_result();
+    let submit = accepted_submit_result();
+    let outcome =
+        haystack_jmap::client::reply_outcome_from_response(&response_from_json(&compact(&json!({
+            "methodResponses": [
+                ["Email/set", create, "create"],
+                ["EmailSubmission/set", submit, "submit"]
+            ],
+            "sessionState": "s-1"
+        }))))
+        .expect("a create and a submit without a flag call should succeed");
+
+    assert!(outcome.is_complete());
+    assert_eq!(outcome.sent_email_id.as_deref(), Some("M-created"));
+}
+
+// A response missing one of the mandatory methods cannot be trusted.
+#[test]
+fn send_reply_fails_when_the_submit_response_is_missing() {
+    let outcome =
+        haystack_jmap::client::reply_outcome_from_response(&response_from_json(&compact(&json!({
+            "methodResponses": [
+                ["Email/set", accepted_create_result(), "create"]
+            ],
+            "sessionState": "s-1"
+        }))));
+
+    let error = outcome.expect_err("a missing submit response must fail");
+    assert!(error.to_string().contains("submit"), "error was: {error}");
+}
+
+// A response that reports the request as a method-level error cannot be read as
+// a success either.
+#[test]
+fn send_reply_fails_when_the_server_answers_with_a_method_error() {
+    let outcome = haystack_jmap::client::reply_outcome_from_response(&response_from_json(
+        r#"{
+          "methodResponses": [
+            ["error", { "type": "serverUnavailable", "description": "Try later" }, "create"]
+          ],
+          "sessionState": "s-1"
+        }"#,
+    ));
+
+    let error = outcome.expect_err("a method-level error must fail");
+    assert!(
+        error.to_string().contains("serverUnavailable"),
+        "error was: {error}"
+    );
+}
+
+// Round 2 P2: send_reply must address Email/set at the mail account and
+// EmailSubmission/set at the submission account, which RFC 8620 section 2 lets
+// a session report separately.
+//
+// The client's own builders are private to `send_reply`, so this pins the wire
+// form a real session produces: `Session::mail_account_id` and
+// `Session::submission_account_id` are read from the session, and the calls
+// built from them must address those two accounts.
+#[test]
+fn send_reply_addresses_each_method_at_its_own_account() {
+    let mail_account = "u-mail";
+    let submission_account = "u-submission";
+
+    let session: haystack_jmap::Session = serde_json::from_value(json!({
+        "primaryAccounts": {
+            "urn:ietf:params:jmap:mail": mail_account,
+            "urn:ietf:params:jmap:submission": submission_account
+        },
+        "apiUrl": "https://api.example.com/jmap",
+        "capabilities": {
+            "urn:ietf:params:jmap:mail": {},
+            "urn:ietf:params:jmap:submission": {}
+        },
+        "state": "s-1",
+        "username": "me@example.com"
+    }))
+    .unwrap();
+
+    assert_eq!(session.mail_account_id().unwrap(), mail_account);
+    assert_eq!(session.submission_account_id().unwrap(), submission_account);
+
+    let create_call = email_set_create_call(
+        session.mail_account_id().unwrap(),
+        &[EmailCreate::new_text(
+            "reply",
+            EmailAddress {
+                name: None,
+                email: "me@example.com".to_string(),
+            },
+            vec![EmailAddress {
+                name: None,
+                email: "them@example.com".to_string(),
+            }],
+            "Re: Dinner",
+            "Sounds good.",
+        )],
+        "create",
+    );
+    let submit_call = EmailSubmission::set_call_with_created_ids(
+        session.submission_account_id().unwrap(),
+        &[EmailSubmission::new("submission", "#reply", "I1")],
+        "submit",
+    );
+    let flag_call = email_set_update_call(
+        session.mail_account_id().unwrap(),
+        &[EmailPatch::new("M-original").mark_seen().mark_answered()],
+        "flag",
+    );
+    let request = submission_request(vec![create_call, submit_call, flag_call]);
+
+    // A regression here sends Email/set to the submission account, which a
+    // conforming server rejects.
+    assert_eq!(request.method_calls[0].1["accountId"], json!(mail_account));
+    assert_eq!(
+        request.method_calls[1].1["accountId"],
+        json!(submission_account)
+    );
+    assert_eq!(request.method_calls[2].1["accountId"], json!(mail_account));
+
+    // The submission's emailId travels as a #creationId reference so the two
+    // calls can share one round trip.
+    assert_eq!(
+        request.method_calls[1].1["create"]["submission"]["emailId"],
+        json!("#reply")
+    );
+}

@@ -443,8 +443,20 @@ impl JMAPClient {
     ///
     /// `reply` carries the headers that thread the message. The identity is
     /// resolved with [`JMAPClient::resolve_identity_id`].
+    ///
+    /// The two calls use the account each method belongs to: `Email/set` runs
+    /// against the mail account and `EmailSubmission/set` against the
+    /// submission account. Fastmail reports one account for both capabilities;
+    /// a conforming server can report distinct ones.
+    ///
+    /// Every `*/set` result is inspected: a message the server rejected in
+    /// `notCreated` or `notUpdated` returns an error naming the failed call
+    /// instead of a success with missing IDs. The independent flag update runs
+    /// last, so a rejected draft or submission leaves the original message
+    /// unflagged.
     pub async fn send_reply(&self, reply: &ReplyRequest) -> Result<ReplyOutcome> {
-        let account_id = self.session.submission_account_id()?.to_string();
+        let mail_account_id = self.session.mail_account_id()?.to_string();
+        let submission_account_id = self.session.submission_account_id()?.to_string();
         let identity_id = self.resolve_identity_id(Some(&reply.from.email)).await?;
 
         let mut create = EmailCreate::new_text(
@@ -476,13 +488,19 @@ impl JMAPClient {
 
         let submission = EmailSubmission::new("submission", "#reply", identity_id);
 
+        // The flag update runs last so that a rejected create or submit leaves
+        // the original message untouched.
         let mut calls = vec![
-            email_set_create_call(&account_id, std::slice::from_ref(&create), "create"),
-            EmailSubmission::set_call_with_created_ids(&account_id, &[submission], "submit"),
+            email_set_create_call(&mail_account_id, std::slice::from_ref(&create), "create"),
+            EmailSubmission::set_call_with_created_ids(
+                &submission_account_id,
+                &[submission],
+                "submit",
+            ),
         ];
         if let Some(original_id) = &reply.in_reply_to_email_id {
             calls.push(email_set_update_call(
-                &account_id,
+                &mail_account_id,
                 &[EmailPatch::new(original_id.clone())
                     .mark_seen()
                     .mark_answered()],
@@ -492,21 +510,10 @@ impl JMAPClient {
         let request = submission_request(calls);
         let response = self.send(&request).await?;
 
-        let create_result = SetResult::from_value(response.result("create")?)?;
-        let submit_result = SetResult::from_value(response.result("submit")?)?;
-        let sent_email_id = create_result
-            .created_record("reply")
-            .map(|record| record.id.clone());
-        let submission_id = submit_result
-            .created_record("submission")
-            .map(|record| record.id.clone());
-
-        Ok(ReplyOutcome {
-            sent_email_id,
-            submission_id,
-            created: create_result,
-            submitted: submit_result,
-        })
+        // A `*/set` call answers 200 while rejecting the operation in
+        // `notCreated` or `notUpdated`, so each result is validated before any
+        // id is read from it.
+        reply_outcome_from_response(&response)
     }
 
     /// Runs `Email/changes` from the persisted cursor and returns the changes
@@ -666,6 +673,38 @@ impl JMAPClient {
             "q1",
         )]))
     }
+}
+
+/// Reads a send-reply response into a [`ReplyOutcome`].
+///
+/// This is the decision [`JMAPClient::send_reply`] makes once the transport has
+/// answered: each `*/set` result is validated, so a server that accepted the
+/// request but rejected a record in `notCreated` or `notUpdated` becomes an
+/// error naming the failed call. A response that omits one of the mandatory
+/// methods fails too. Keeping the decision here lets a test drive it from a
+/// published RFC response without a server.
+pub fn reply_outcome_from_response(response: &JMAPResponse) -> Result<ReplyOutcome> {
+    let create_result =
+        SetResult::from_value(response.result("create")?)?.into_result_for("Email/set")?;
+    let submit_result = SetResult::from_value(response.result("submit")?)?
+        .into_result_for("EmailSubmission/set")?;
+    if response.response_for("flag").is_some() {
+        SetResult::from_value(response.result("flag")?)?.into_result_for("Email/set")?;
+    }
+
+    let sent_email_id = create_result
+        .created_record("reply")
+        .map(|record| record.id.clone());
+    let submission_id = submit_result
+        .created_record("submission")
+        .map(|record| record.id.clone());
+
+    Ok(ReplyOutcome {
+        sent_email_id,
+        submission_id,
+        created: create_result,
+        submitted: submit_result,
+    })
 }
 
 /// A threaded reply to send through [`JMAPClient::send_reply`].

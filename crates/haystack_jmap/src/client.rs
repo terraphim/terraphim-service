@@ -167,7 +167,15 @@ impl JMAPClient {
 
     /// Sends one request envelope and parses the response.
     async fn send(&self, request: &JMAPRequest) -> Result<JMAPResponse> {
-        log::debug!("JMAP request: {}", serde_json::to_string(request)?);
+        // Method names and call IDs only: request arguments carry message
+        // bodies, addresses, subjects, search terms and threading headers, and
+        // debug logs travel to staging and centralised log stores.
+        let calls: Vec<(&str, &str)> = request
+            .method_calls
+            .iter()
+            .map(|call| (call.0.as_str(), call.2.as_str()))
+            .collect();
+        log::debug!("JMAP request calls: {:?}", calls);
 
         let response = self
             .client
@@ -199,6 +207,14 @@ impl JMAPClient {
     async fn call(&self, request: JMAPRequest, call_id: &str) -> Result<serde_json::Value> {
         let response = self.send(&request).await?;
         response.result(call_id).cloned()
+    }
+
+    /// Sends a request envelope and returns the arguments of one call.
+    ///
+    /// Exposed for callers whose method has no typed helper, for example
+    /// `Email/set` with `destroy`.
+    pub async fn call_raw(&self, request: JMAPRequest, call_id: &str) -> Result<serde_json::Value> {
+        self.call(request, call_id).await
     }
 
     /// Searches for emails matching the given query with configurable result limit.
@@ -585,13 +601,43 @@ impl JMAPClient {
 
     /// Fetches the full data for the emails named by a change set, excluding
     /// destroyed messages.
+    ///
+    /// `Email/changes` reports changes for the whole account, so this helper is
+    /// account-wide. For the tinyclaw inbound channel, whose durable queue is
+    /// one mailbox, use [`JMAPClient::fetch_changed_emails_in_mailbox`].
     pub async fn fetch_changed_emails(&self, changes: &EmailChanges) -> Result<Vec<Email>> {
-        let mut ids: Vec<String> = changes.created.clone();
-        ids.extend(changes.updated.iter().cloned());
+        let ids = changes.fetchable_ids();
         if ids.is_empty() {
             return Ok(Vec::new());
         }
         self.get_emails(&ids).await
+    }
+
+    /// Fetches the changed messages that belong to the given mailbox.
+    ///
+    /// `Email/changes` is account-wide: it reports every created or updated
+    /// message, including mail in Sent, Drafts, Processed or Quarantine. The
+    /// design makes one configured mailbox the inbound queue, so this helper
+    /// drops messages the account changed outside that mailbox.
+    ///
+    /// Reading a message's mailbox membership needs the `mailboxIds` property,
+    /// which full `Email/get` options request. A response that omits
+    /// `mailboxIds` cannot prove membership, so it is filtered out rather than
+    /// admitted as inbound work.
+    ///
+    /// Seed the cursor from an `Email/get` state taken after a full mailbox
+    /// query, as [`JMAPClient::store_cursor`] expects.
+    pub async fn fetch_changed_emails_in_mailbox(
+        &self,
+        changes: &EmailChanges,
+        mailbox_id: &str,
+    ) -> Result<Vec<Email>> {
+        Ok(self
+            .fetch_changed_emails(changes)
+            .await?
+            .into_iter()
+            .filter(|email| email.mailbox_ids.get(mailbox_id).copied().unwrap_or(false))
+            .collect())
     }
 
     /// Builds the request envelope an `Email/query` by mailbox produces.

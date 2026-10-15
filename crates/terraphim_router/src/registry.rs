@@ -245,8 +245,21 @@ impl ProviderRegistry {
         let body = &rest[end_pos + 3..];
 
         // Parse YAML frontmatter
-        let frontmatter: ProviderFrontmatter = serde_yaml::from_str(yaml_content).map_err(|e| {
-            RoutingError::Serialization(format!("Failed to parse YAML frontmatter: {}", e))
+        let frontmatter: ProviderFrontmatter = serde_saphyr::from_str_with_options(
+            yaml_content,
+            serde_saphyr::options! {
+                strict_booleans: true,
+                merge_keys: serde_saphyr::MergeKeyPolicy::AsOrdinary,
+            },
+        )
+        .map_err(|error| {
+            // Parser snippets can include credentials from adjacent fields.
+            // Keep useful coordinates without copying input into diagnostics.
+            let location = error
+                .location()
+                .map(|loc| format!(" at line {}, column {}", loc.line(), loc.column()))
+                .unwrap_or_default();
+            RoutingError::Serialization(format!("Failed to parse YAML frontmatter{location}"))
         })?;
 
         Ok(MarkdownProvider {
@@ -485,6 +498,56 @@ mod tests {
     use super::*;
     use std::io::Write;
     use tempfile::NamedTempFile;
+
+    #[test]
+    fn yaml_frontmatter_rejects_invalid_input_without_echoing_values() {
+        for yaml in [
+            "id: invalid\nname: protected-marker\ntype: llm\ncapabilities: [\n",
+            "id: first\nid: second\nname: protected-marker\ntype: llm\ncapabilities: []\nkeywords: []\n",
+            "name: protected-marker\n",
+        ] {
+            let error = ProviderRegistry::parse_markdown(
+                format!("---\n{yaml}---\n"),
+                PathBuf::from("test.md"),
+            )
+            .unwrap_err();
+            assert!(matches!(error, RoutingError::Serialization(_)));
+            assert!(!error.to_string().contains("protected-marker"));
+        }
+    }
+
+    #[test]
+    fn yaml_frontmatter_keeps_boolean_like_strings_and_aliases() {
+        let content = "---\nid: on\nname: &label off\ntype: llm\nmodel_id: *label\ncapabilities: []\nkeywords: []\ncost: cheap\nlatency: fast\n---\nbody";
+        let parsed = ProviderRegistry::parse_markdown(content.into(), "test.md".into()).unwrap();
+        assert_eq!(parsed.frontmatter.id, "on");
+        assert_eq!(parsed.frontmatter.name, "off");
+        assert_eq!(parsed.frontmatter.model_id.as_deref(), Some("off"));
+    }
+
+    #[test]
+    fn yaml_frontmatter_does_not_expand_merge_keys() {
+        let content = "---\ndefaults: &defaults {id: inherited, name: inherited, type: llm, capabilities: [], keywords: []}\n<<: *defaults\n---\n";
+        let result = ProviderRegistry::parse_markdown(content.into(), "test.md".into());
+        assert!(matches!(result, Err(RoutingError::Serialization(_))));
+    }
+
+    #[test]
+    fn yaml_frontmatter_refuses_pathological_nesting() {
+        let content = format!(
+            "---\nid: test\nname: test\ntype: llm\ncapabilities: []\nkeywords: []\nignored: {}0{}\n---\n",
+            "[".repeat(256), "]".repeat(256),
+        );
+        let result = ProviderRegistry::parse_markdown(content, "test.md".into());
+        assert!(matches!(result, Err(RoutingError::Serialization(_))));
+    }
+
+    #[test]
+    fn yaml_frontmatter_keeps_property_references_literal() {
+        let content = "---\nid: test\nname: ${SHOULD_NOT_EXPAND}\ntype: llm\ncapabilities: []\nkeywords: []\n---\n";
+        let parsed = ProviderRegistry::parse_markdown(content.into(), "test.md".into()).unwrap();
+        assert_eq!(parsed.frontmatter.name, "${SHOULD_NOT_EXPAND}");
+    }
 
     #[test]
     fn test_parse_markdown_with_frontmatter() {

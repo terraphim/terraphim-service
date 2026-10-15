@@ -526,6 +526,30 @@ mod tests {
     }
 
     #[test]
+    fn yaml_frontmatter_does_not_expand_merge_keys() {
+        let content = "---\ndefaults: &defaults {id: inherited, name: inherited, type: llm, capabilities: [], keywords: []}\n<<: *defaults\n---\n";
+        let result = ProviderRegistry::parse_markdown(content.into(), "test.md".into());
+        assert!(matches!(result, Err(RoutingError::Serialization(_))));
+    }
+
+    #[test]
+    fn yaml_frontmatter_refuses_pathological_nesting() {
+        let content = format!(
+            "---\nid: test\nname: test\ntype: llm\ncapabilities: []\nkeywords: []\nignored: {}0{}\n---\n",
+            "[".repeat(256), "]".repeat(256),
+        );
+        let result = ProviderRegistry::parse_markdown(content, "test.md".into());
+        assert!(matches!(result, Err(RoutingError::Serialization(_))));
+    }
+
+    #[test]
+    fn yaml_frontmatter_keeps_property_references_literal() {
+        let content = "---\nid: test\nname: ${SHOULD_NOT_EXPAND}\ntype: llm\ncapabilities: []\nkeywords: []\n---\n";
+        let parsed = ProviderRegistry::parse_markdown(content.into(), "test.md".into()).unwrap();
+        assert_eq!(parsed.frontmatter.name, "${SHOULD_NOT_EXPAND}");
+    }
+
+    #[test]
     fn test_parse_markdown_with_frontmatter() {
         let content = r#"---
 id: "claude-opus"

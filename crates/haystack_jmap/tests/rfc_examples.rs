@@ -19,7 +19,7 @@ use haystack_jmap::response::{
     SetResult, cannot_calculate_changes_error,
 };
 use haystack_jmap::types::{
-    Email, EmailAddress, KEYWORD_ANSWERED, KEYWORD_DRAFT, KEYWORD_SEEN, ROLE_INBOX,
+    Email, EmailAddress, KEYWORD_ANSWERED, KEYWORD_DRAFT, KEYWORD_SEEN, Mailbox, ROLE_INBOX,
 };
 use serde_json::{Value, json};
 
@@ -312,6 +312,8 @@ fn rfc8621_4_1_3_email_get_parses_threading_keywords_and_auth_headers() {
       "inReplyTo": ["<parent@example.com>"],
       "references": ["<root@example.com>", "<parent@example.com>"],
       "cc": [{ "name": null, "email": "carol@example.com" }],
+      "header:Message-ID:asMessageIds": ["<abc@example.com>"],
+      "header:References:asMessageIds": ["<root@example.com>", "<parent@example.com>"],
       "header:Authentication-Results:asText": "mx.example.com; spf=pass; dkim=pass",
       "header:Received:asText": "from mail.example.com by mx.example.com; Tue, 10 Jul 2018 11:03:11 +1000",
       "header:X-ME-Message-Id:asRaw": "<marker-1>"
@@ -329,6 +331,16 @@ fn rfc8621_4_1_3_email_get_parses_threading_keywords_and_auth_headers() {
     );
     assert_eq!(email.references.as_ref().unwrap().len(), 2);
     assert_eq!(email.cc.as_ref().unwrap()[0].email, "carol@example.com");
+    // An asMessageIds header arrives as a list of identifiers, or null when the
+    // value does not parse (RFC 8621 section 4.1.2.5).
+    assert_eq!(
+        email.headers["header:Message-ID:asMessageIds"],
+        json!(["<abc@example.com>"])
+    );
+    assert_eq!(
+        email.headers["header:References:asMessageIds"],
+        json!(["<root@example.com>", "<parent@example.com>"])
+    );
     assert_eq!(
         email.headers["header:Authentication-Results:asText"],
         json!("mx.example.com; spf=pass; dkim=pass")
@@ -343,6 +355,80 @@ fn rfc8621_4_1_3_email_get_parses_threading_keywords_and_auth_headers() {
         email.headers["header:X-ME-Message-Id:asRaw"],
         json!("<marker-1>")
     );
+}
+
+// RFC 8621 section 4.1.2.5: an asMessageIds header whose value does not parse
+// comes back as null, and the field survives the round trip as such.
+#[test]
+fn rfc8621_4_1_2_5_message_ids_header_round_trips_a_null_value() {
+    let published = r#"{
+      "id": "M123",
+      "header:In-Reply-To:asMessageIds": null
+    }"#;
+
+    let email: Email = serde_json::from_str(published).unwrap();
+    assert_eq!(
+        email.headers["header:In-Reply-To:asMessageIds"],
+        json!(null)
+    );
+
+    let serialised = serde_json::to_value(&email).unwrap();
+    assert_eq!(serialised["header:In-Reply-To:asMessageIds"], json!(null));
+}
+
+// RFC 8621 section 4.1.2: every requested header carries the parsed form that
+// section allows for it. Fetching a header in a form it does not support is
+// answered with invalidArguments, so the exact property strings `Email/get`
+// sends are pinned here.
+#[test]
+fn rfc8621_4_1_2_full_options_request_each_header_in_a_supported_parsed_form() {
+    let properties = EmailGetOptions::full().properties;
+
+    // The msg-id headers are fetched as message identifiers, never as text.
+    assert!(properties.contains(&"header:Message-ID:asMessageIds".to_string()));
+    assert!(properties.contains(&"header:In-Reply-To:asMessageIds".to_string()));
+    assert!(properties.contains(&"header:References:asMessageIds".to_string()));
+
+    // These two headers keep the text form.
+    assert!(properties.contains(&"header:Authentication-Results:asText".to_string()));
+    assert!(properties.contains(&"header:Received:asText".to_string()));
+
+    // The Fastmail routing headers keep the raw form.
+    assert!(properties.contains(&"header:X-ME-Message-Id:asRaw".to_string()));
+    assert!(properties.contains(&"header:X-ME-User:asRaw".to_string()));
+
+    // No header may be requested as text unless RFC 8621 section 4.1.2.2 allows
+    // it, and the msg-id headers must never appear as text.
+    let as_text_headers: Vec<&String> = properties
+        .iter()
+        .filter(|p| p.ends_with(":asText"))
+        .filter(|p| {
+            !matches!(
+                p.as_str(),
+                "header:Subject:asText"
+                    | "header:Comments:asText"
+                    | "header:Keywords:asText"
+                    | "header:List-Id:asText"
+            )
+        })
+        .filter(|p| {
+            !matches!(
+                p.as_str(),
+                "header:Authentication-Results:asText" | "header:Received:asText"
+            )
+        })
+        .collect();
+    assert!(
+        as_text_headers.is_empty(),
+        "headers fetched as text outside RFC 8621 section 4.1.2.2: {as_text_headers:?}"
+    );
+    for name in ["Message-ID", "In-Reply-To", "References"] {
+        assert!(
+            !properties.contains(&format!("header:{name}:asText")),
+            "{name} must not be fetched as text"
+        );
+        assert!(!properties.contains(&format!("header:{name}:asRaw")));
+    }
 }
 
 // Round-trip: an Email parsed from a get response re-serialises to the same
@@ -558,6 +644,52 @@ fn rfc8621_2_6_mailbox_get_request_names_the_account() {
             .iter()
             .any(|p| p == "role")
     );
+}
+
+// RFC 8621 section 2: the Mailbox subscription property is named
+// `isSubscribed`. Requesting `subscribed` is answered with invalidArguments, so
+// the exact property strings the request sends are pinned here.
+#[test]
+fn rfc8621_2_mailbox_get_requests_is_subscribed() {
+    let call = mailbox_get_call("u33084183", "0");
+    let properties: Vec<&str> = call.1["properties"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p.as_str().unwrap())
+        .collect();
+
+    assert_eq!(
+        properties,
+        vec![
+            "id",
+            "name",
+            "role",
+            "parentId",
+            "totalEmails",
+            "unreadEmails",
+            "isSubscribed"
+        ]
+    );
+    assert!(!properties.contains(&"subscribed"));
+}
+
+// RFC 8621 section 2: a mailbox response carrying `isSubscribed` fills the
+// `subscribed` field, and the response re-serialises under the wire name.
+#[test]
+fn rfc8621_2_mailbox_is_subscribed_round_trips_under_the_wire_name() {
+    let mailbox: Mailbox = serde_json::from_value(json!({
+        "id": "MB1",
+        "name": "Inbox",
+        "role": "inbox",
+        "isSubscribed": true
+    }))
+    .unwrap();
+    assert_eq!(mailbox.subscribed, Some(true));
+
+    let serialised = serde_json::to_value(&mailbox).unwrap();
+    assert_eq!(serialised["isSubscribed"], json!(true));
+    assert!(serialised.get("subscribed").is_none());
 }
 
 // RFC 8621 section 6.4: Identity/get returns the sending identities, and the

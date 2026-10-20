@@ -35,11 +35,44 @@ pub const KEYWORD_ANSWERED: &str = "$answered";
 /// Keyword applied to a message still being composed.
 pub const KEYWORD_DRAFT: &str = "$draft";
 
-/// The properties of an email that this client knows how to request and parse.
+/// Header properties requested alongside the message properties, as complete
+/// `header:<name>:<parsed form>` strings.
 ///
-/// The list mixes message properties, generic header properties (every name
-/// starting with `header:`) and the header names needed for threading and the
-/// own-submission trust check described in the tinyclaw design.
+/// RFC 8621 section 4.1.2 restricts each parsed form to a fixed set of header
+/// fields: `asMessageIds` only for the `msg-id` headers, `asAddresses` and
+/// `asGroupedAddresses` only for the address headers, and `asText` only for the
+/// text headers. A server answers `invalidArguments` for any other pairing, so
+/// every header is listed with the form it may be fetched in.
+pub const EMAIL_HEADER_PROPERTIES: &[&str] = &[
+    // Threading: the msg-id headers, parsed as a list of message identifiers.
+    "header:Message-ID:asMessageIds",
+    "header:In-Reply-To:asMessageIds",
+    "header:References:asMessageIds",
+    // Delivery chain and the own-submission trust check, kept as text.
+    "header:Authentication-Results:asText",
+    "header:Received:asText",
+    // Fastmail routing headers, which have no parsed form of their own.
+    "header:X-ME-Message-Id:asRaw",
+    "header:X-ME-User:asRaw",
+];
+
+/// The header names carried alongside a message, keyed by lower-case name.
+///
+/// Only the headers named here are requested and preserved; other headers are
+/// dropped when a message is converted into this map.
+pub const EMAIL_HEADER_NAMES: &[&str] = &[
+    "message-id",
+    "in-reply-to",
+    "references",
+    "received",
+    "authentication-results",
+];
+
+/// The message properties of an email that this client knows how to parse.
+///
+/// The header properties requested with them are listed separately in
+/// [`EMAIL_HEADER_PROPERTIES`], because RFC 8621 section 4.1.2 fixes the parsed
+/// form each header may be fetched in.
 pub const EMAIL_PROPERTIES: &[&str] = &[
     "id",
     "blobId",
@@ -64,22 +97,6 @@ pub const EMAIL_PROPERTIES: &[&str] = &[
     "bodyValues",
     "textBody",
     "htmlBody",
-    "header:Authentication-Results:asText",
-    "header:Received:asText",
-    "header:X-ME-Message-Id:asRaw",
-    "header:X-ME-User:asRaw",
-];
-
-/// The header names carried alongside a message, keyed by lower-case name.
-///
-/// Only the headers named here are requested and preserved; other headers are
-/// dropped when a message is converted into this map.
-pub const EMAIL_HEADER_NAMES: &[&str] = &[
-    "message-id",
-    "in-reply-to",
-    "references",
-    "received",
-    "authentication-results",
 ];
 
 /// A single email message.

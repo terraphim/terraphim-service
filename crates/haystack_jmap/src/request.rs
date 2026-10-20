@@ -4,8 +4,8 @@
 //! `methodCalls` and an optional `createdIds`; a response carries
 //! `methodResponses`, `sessionState` and, for `*/set`, `createdIds`.
 use crate::types::{
-    CAPABILITY_CORE, CAPABILITY_MAIL, CAPABILITY_SUBMISSION, EMAIL_HEADER_NAMES, EMAIL_PROPERTIES,
-    EmailAddress, KEYWORD_ANSWERED, KEYWORD_DRAFT, KEYWORD_FLAGGED, KEYWORD_SEEN,
+    CAPABILITY_CORE, CAPABILITY_MAIL, CAPABILITY_SUBMISSION, EMAIL_HEADER_PROPERTIES,
+    EMAIL_PROPERTIES, EmailAddress, KEYWORD_ANSWERED, KEYWORD_DRAFT, KEYWORD_FLAGGED, KEYWORD_SEEN,
 };
 use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
@@ -166,7 +166,9 @@ pub fn mailbox_get_call(account_id: &str, call_id: &str) -> MethodCall {
         "Mailbox/get".to_string(),
         json!({
             "accountId": account_id,
-            "properties": ["id", "name", "role", "parentId", "totalEmails", "unreadEmails", "subscribed"],
+            // RFC 8621 section 2 names the property `isSubscribed`; asking for
+            // `subscribed` is answered with invalidArguments.
+            "properties": ["id", "name", "role", "parentId", "totalEmails", "unreadEmails", "isSubscribed"],
         }),
         call_id.to_string(),
     )
@@ -353,13 +355,12 @@ impl Default for EmailGetOptions {
 
 impl EmailGetOptions {
     /// Requests the default property set: message metadata, threading fields,
-    /// keywords and the headers named in [`EMAIL_HEADER_NAMES`].
+    /// keywords and the headers named in [`EMAIL_HEADER_PROPERTIES`], each in
+    /// the parsed form RFC 8621 section 4.1.2 allows for it.
     pub fn full() -> Self {
         let mut properties: Vec<String> =
             EMAIL_PROPERTIES.iter().map(|p| (*p).to_string()).collect();
-        for name in EMAIL_HEADER_NAMES {
-            properties.push(format!("header:{name}:asText"));
-        }
+        properties.extend(EMAIL_HEADER_PROPERTIES.iter().map(|p| (*p).to_string()));
         Self {
             properties,
             ..Self::default()

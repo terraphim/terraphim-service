@@ -1,6 +1,6 @@
 [package]
 name = "haystack_jmap"
-version = "2.0.0"
+version = "2.0.1"
 edition.workspace = true
 description = "JMAP haystack provider for Terraphim AI"
 documentation = "https://terraphim.ai"

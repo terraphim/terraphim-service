@@ -47,6 +47,10 @@ struct GitInfo {
 }
 
 /// Response item entry
+///
+/// Codex payloads carry both a `type` (entry kind, e.g. `"message"`) and a
+/// `role` (author, e.g. `"user"`/`"assistant"`). The author comes from `role`;
+/// `type` is intentionally ignored.
 #[derive(Debug, Clone, Deserialize)]
 struct ResponseItem {
     role: String,
@@ -124,10 +128,10 @@ impl SessionConnector for CodexConnector {
             .filter_map(|e| e.ok())
             .filter(|e| e.path().extension().is_some_and(|ext| ext == "jsonl"))
         {
-            if let Some(limit) = options.limit {
-                if sessions.len() >= limit {
-                    break;
-                }
+            if let Some(limit) = options.limit
+                && sessions.len() >= limit
+            {
+                break;
             }
 
             match self.parse_session_file(entry.path()) {

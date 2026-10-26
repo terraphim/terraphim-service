@@ -1,6 +1,6 @@
 [package]
 name = "terraphim-session-analyzer"
-version.workspace = true
+version = "1.23.0"
 edition.workspace = true
 authors = ["Zestic AI Development Team"]
 description = "Analyze AI coding assistant session logs to identify agent usage patterns"

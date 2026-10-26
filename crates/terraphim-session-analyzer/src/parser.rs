@@ -6,10 +6,36 @@ use crate::patterns::PatternMatcher;
 use crate::tool_analyzer;
 use anyhow::{Context, Result};
 use rayon::prelude::*;
+use serde::Deserialize;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use tracing::{debug, info, warn};
+
+/// Claude Code JSONL entry types that carry metadata, not conversational messages.
+/// These are skipped during parsing to avoid false deserialization failures and
+/// reduce log noise (~2003 of ~2430 WARN lines eliminated).
+const SKIP_ENTRY_TYPES: &[&str] = &[
+    "last-prompt",
+    "mode",
+    "permission-mode",
+    "ai-title",
+    "file-history-snapshot",
+    "queue-operation",
+    "agent-name",
+    "pr-link",
+    "tool_reference",
+    "text",
+    "attachment",
+    "system",
+];
+
+/// Lightweight struct for peeking at the entry type before full deserialization.
+#[derive(Deserialize)]
+struct EntryTypePeek {
+    #[serde(rename = "type")]
+    entry_type: String,
+}
 
 pub struct SessionParser {
     entries: Vec<SessionEntry>,
@@ -39,6 +65,12 @@ impl SessionParser {
         for (line_num, line) in reader.lines().enumerate() {
             match line {
                 Ok(line) if !line.trim().is_empty() => {
+                    if let Ok(peek) = serde_json::from_str::<EntryTypePeek>(&line)
+                        && SKIP_ENTRY_TYPES.contains(&peek.entry_type.as_str())
+                    {
+                        debug!("Skipping metadata entry of type: {}", peek.entry_type);
+                        continue;
+                    }
                     match serde_json::from_str::<SessionEntry>(&line) {
                         Ok(entry) => {
                             // Extract session metadata from first entry
@@ -533,5 +565,262 @@ mod tests {
         assert_eq!(file_ops.len(), 1);
         assert_eq!(file_ops[0].file_path, "/path/to/file.rs");
         assert!(matches!(file_ops[0].operation, FileOpType::Write));
+    }
+
+    #[test]
+    fn test_assistant_with_thinking_block_parses() {
+        let json_line = r#"{"parentUuid":null,"isSidechain":false,"userType":"external","cwd":"/tmp","sessionId":"s1","version":"1.0","gitBranch":"","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Let me analyze this..."},{"type":"text","text":"Here is my answer"}]},"type":"assistant","uuid":"u1","timestamp":"2025-01-01T09:00:00.000Z"}"#;
+        let entry: SessionEntry = serde_json::from_str(json_line).unwrap();
+        assert_eq!(entry.entry_type, "assistant");
+        if let crate::models::Message::Assistant { content, .. } = &entry.message {
+            assert_eq!(content.len(), 2);
+        } else {
+            panic!("Expected Assistant message");
+        }
+    }
+
+    #[test]
+    fn test_assistant_with_unknown_content_block_parses() {
+        let json_line = r#"{"parentUuid":null,"isSidechain":false,"userType":"external","cwd":"/tmp","sessionId":"s1","version":"1.0","gitBranch":"","message":{"role":"assistant","content":[{"type":"some_future_block_type","data":"whatever"}]},"type":"assistant","uuid":"u1","timestamp":"2025-01-01T09:00:00.000Z"}"#;
+        let entry: SessionEntry = serde_json::from_str(json_line).unwrap();
+        assert_eq!(entry.entry_type, "assistant");
+    }
+
+    #[test]
+    fn test_entry_type_peek_extracts_type() {
+        let json = r#"{"type":"last-prompt","lastPrompt":"echo hello","sessionId":"abc"}"#;
+        let peek: EntryTypePeek = serde_json::from_str(json).unwrap();
+        assert_eq!(peek.entry_type, "last-prompt");
+    }
+
+    #[test]
+    fn test_skip_set_contains_metadata_types() {
+        assert!(SKIP_ENTRY_TYPES.contains(&"last-prompt"));
+        assert!(SKIP_ENTRY_TYPES.contains(&"mode"));
+        assert!(SKIP_ENTRY_TYPES.contains(&"permission-mode"));
+        assert!(SKIP_ENTRY_TYPES.contains(&"ai-title"));
+        assert!(SKIP_ENTRY_TYPES.contains(&"file-history-snapshot"));
+        assert!(SKIP_ENTRY_TYPES.contains(&"queue-operation"));
+        assert!(SKIP_ENTRY_TYPES.contains(&"agent-name"));
+        assert!(SKIP_ENTRY_TYPES.contains(&"pr-link"));
+        assert!(SKIP_ENTRY_TYPES.contains(&"tool_reference"));
+        assert!(SKIP_ENTRY_TYPES.contains(&"text"));
+        assert!(SKIP_ENTRY_TYPES.contains(&"attachment"));
+        assert!(SKIP_ENTRY_TYPES.contains(&"system"));
+    }
+
+    #[test]
+    fn test_skip_set_excludes_message_types() {
+        assert!(!SKIP_ENTRY_TYPES.contains(&"user"));
+        assert!(!SKIP_ENTRY_TYPES.contains(&"assistant"));
+    }
+
+    #[test]
+    fn test_metadata_entries_skipped_in_from_file() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("metadata-only.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                r#"{"type":"last-prompt","lastPrompt":"hi","leafUuid":"a","sessionId":"s1"}"#,
+                "\n",
+                r#"{"type":"mode","mode":"normal","sessionId":"s1"}"#,
+                "\n",
+                r#"{"type":"permission-mode","permissionMode":"auto","sessionId":"s1"}"#,
+                "\n",
+                r#"{"type":"ai-title","title":"Test","sessionId":"s1"}"#,
+                "\n",
+                r#"{"type":"system","content":"system init","sessionId":"s1"}"#,
+                "\n",
+                r#"{"type":"attachment","attachment":{"type":"deferred_tools_delta"},"uuid":"u1","sessionId":"s1","timestamp":"2025-01-01T00:00:00.000Z"}"#,
+                "\n",
+            ),
+        )
+        .unwrap();
+
+        let parser = SessionParser::from_file(&path).unwrap();
+        assert_eq!(
+            parser.entries.len(),
+            0,
+            "All metadata entries should be skipped"
+        );
+    }
+
+    #[test]
+    fn test_user_and_assistant_entries_still_parsed() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("messages.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                r#"{"parentUuid":null,"isSidechain":false,"userType":"external","cwd":"/tmp","sessionId":"s1","version":"1.0","gitBranch":"","type":"user","message":{"role":"user","content":"hello"},"uuid":"u1","timestamp":"2025-01-01T09:00:00.000Z"}"#,
+                "\n",
+                r#"{"parentUuid":"u1","isSidechain":false,"userType":"external","cwd":"/tmp","sessionId":"s1","version":"1.0","gitBranch":"","message":{"role":"assistant","content":[{"type":"text","text":"hi there"}]},"type":"assistant","uuid":"u2","timestamp":"2025-01-01T09:00:01.000Z"}"#,
+                "\n",
+                r#"{"type":"mode","mode":"normal","sessionId":"s1"}"#,
+                "\n",
+            ),
+        )
+        .unwrap();
+
+        let parser = SessionParser::from_file(&path).unwrap();
+        assert_eq!(
+            parser.entries.len(),
+            2,
+            "user + assistant entries should parse, mode should be skipped"
+        );
+        assert_eq!(parser.entries[0].entry_type, "user");
+        assert_eq!(parser.entries[1].entry_type, "assistant");
+    }
+
+    #[test]
+    fn test_project_path_taken_from_first_entry_carrying_cwd() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("cwd-order.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                r#"{"parentUuid":null,"isSidechain":false,"userType":"external","sessionId":"s1","version":"1.0","gitBranch":"","type":"user","message":{"role":"user","content":"no cwd on this entry"},"uuid":"u1","timestamp":"2025-01-01T09:00:00.000Z"}"#,
+                "\n",
+                r#"{"parentUuid":"u1","isSidechain":false,"userType":"external","cwd":"/first/cwd","sessionId":"s1","version":"1.0","gitBranch":"","type":"user","message":{"role":"user","content":"first cwd"},"uuid":"u2","timestamp":"2025-01-01T09:00:01.000Z"}"#,
+                "\n",
+                r#"{"parentUuid":"u2","isSidechain":false,"userType":"external","cwd":"/second/cwd","sessionId":"s1","version":"1.0","gitBranch":"","type":"user","message":{"role":"user","content":"later cwd must not win"},"uuid":"u3","timestamp":"2025-01-01T09:00:02.000Z"}"#,
+                "\n",
+            ),
+        )
+        .unwrap();
+
+        let parser = SessionParser::from_file(&path).unwrap();
+        let (_, project_path, _, _) = parser.get_session_info();
+        assert_eq!(
+            project_path, "/first/cwd",
+            "project path comes from the first entry that carries a cwd, and is never overwritten"
+        );
+    }
+
+    #[test]
+    fn test_extract_agent_invocations_ignores_non_task_tool_use() {
+        let json_line = r#"{"parentUuid":"parent-uuid","isSidechain":false,"userType":"external","cwd":"/home/alex/projects","sessionId":"test-session","version":"1.0.111","gitBranch":"","message":{"role":"assistant","content":[{"type":"tool_use","id":"tool-id","name":"Write","input":{"subagent_type":"architect","file_path":"/path/to/file.rs"}}]},"type":"assistant","uuid":"msg-uuid","timestamp":"2025-10-01T09:05:21.902Z"}"#;
+
+        let entry: SessionEntry = serde_json::from_str(json_line).unwrap();
+        let parser = SessionParser {
+            entries: vec![entry],
+            session_id: "test-session".to_string(),
+            project_path: "/home/alex/projects".to_string(),
+        };
+
+        assert!(
+            parser.extract_agent_invocations().is_empty(),
+            "only Task tool uses yield agent invocations, even when subagent_type is present"
+        );
+    }
+
+    #[test]
+    fn test_extract_file_operations_ignores_unknown_tool_and_missing_path() {
+        // Bash is not a FileOpType, and a Write without any path field yields nothing.
+        let unknown_tool = r#"{"parentUuid":null,"isSidechain":false,"userType":"external","cwd":"/p","sessionId":"s1","version":"1.0","gitBranch":"","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"file_path":"/path/to/file.rs"}}]},"type":"assistant","uuid":"u1","timestamp":"2025-10-01T09:05:21.902Z"}"#;
+        let no_path = r#"{"parentUuid":null,"isSidechain":false,"userType":"external","cwd":"/p","sessionId":"s1","version":"1.0","gitBranch":"","message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Write","input":{"content":"no path here"}}]},"type":"assistant","uuid":"u2","timestamp":"2025-10-01T09:05:22.902Z"}"#;
+
+        let parser = SessionParser {
+            entries: vec![
+                serde_json::from_str(unknown_tool).unwrap(),
+                serde_json::from_str(no_path).unwrap(),
+            ],
+            session_id: "s1".to_string(),
+            project_path: "/p".to_string(),
+        };
+
+        assert!(
+            parser.extract_file_operations().is_empty(),
+            "a file operation needs both a parseable op type and an extractable path"
+        );
+    }
+
+    #[test]
+    fn test_find_active_agent_returns_most_recent_prior_task() {
+        let earlier = r#"{"parentUuid":null,"isSidechain":false,"userType":"external","cwd":"/p","sessionId":"s1","version":"1.0","gitBranch":"","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Task","input":{"subagent_type":"architect"}}]},"type":"assistant","uuid":"u1","timestamp":"2025-10-01T09:00:00.000Z"}"#;
+        let later = r#"{"parentUuid":"u1","isSidechain":false,"userType":"external","cwd":"/p","sessionId":"s1","version":"1.0","gitBranch":"","message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Task","input":{"subagent_type":"developer"}}]},"type":"assistant","uuid":"u2","timestamp":"2025-10-01T09:00:01.000Z"}"#;
+        let target = r#"{"parentUuid":"u2","isSidechain":false,"userType":"external","cwd":"/p","sessionId":"s1","version":"1.0","gitBranch":"","message":{"role":"assistant","content":[{"type":"tool_use","id":"t3","name":"Write","input":{"file_path":"/a.rs"}}]},"type":"assistant","uuid":"u3","timestamp":"2025-10-01T09:00:02.000Z"}"#;
+
+        let parser = SessionParser {
+            entries: vec![
+                serde_json::from_str(earlier).unwrap(),
+                serde_json::from_str(later).unwrap(),
+                serde_json::from_str(target).unwrap(),
+            ],
+            session_id: "s1".to_string(),
+            project_path: "/p".to_string(),
+        };
+
+        assert_eq!(
+            parser.find_active_agent("u3"),
+            Some("developer".to_string())
+        );
+    }
+
+    #[test]
+    fn test_find_active_agent_skips_task_without_subagent_type() {
+        let untyped_task = r#"{"parentUuid":null,"isSidechain":false,"userType":"external","cwd":"/p","sessionId":"s1","version":"1.0","gitBranch":"","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Task","input":{"description":"no subagent_type"}}]},"type":"assistant","uuid":"u1","timestamp":"2025-10-01T09:00:00.000Z"}"#;
+        let target = r#"{"parentUuid":"u1","isSidechain":false,"userType":"external","cwd":"/p","sessionId":"s1","version":"1.0","gitBranch":"","message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Write","input":{"file_path":"/a.rs"}}]},"type":"assistant","uuid":"u2","timestamp":"2025-10-01T09:00:01.000Z"}"#;
+
+        let parser = SessionParser {
+            entries: vec![
+                serde_json::from_str(untyped_task).unwrap(),
+                serde_json::from_str(target).unwrap(),
+            ],
+            session_id: "s1".to_string(),
+            project_path: "/p".to_string(),
+        };
+
+        assert_eq!(parser.find_active_agent("u2"), None);
+    }
+
+    /// Real Aho-Corasick matcher initialised with a single `cargo` pattern.
+    fn cargo_matcher() -> crate::patterns::AhoCorasickMatcher {
+        use crate::patterns::{PatternMatcher as _, ToolMetadata, ToolPattern};
+
+        let mut matcher = crate::patterns::AhoCorasickMatcher::new();
+        matcher
+            .initialize(&[ToolPattern {
+                name: "cargo".to_string(),
+                patterns: vec!["cargo ".to_string()],
+                metadata: ToolMetadata {
+                    category: "build-tool".to_string(),
+                    description: Some("Rust build tool".to_string()),
+                    confidence: 0.95,
+                },
+            }])
+            .unwrap();
+        matcher
+    }
+
+    #[test]
+    fn test_extract_from_bash_command_ignores_non_bash_tool_use() {
+        let json_line = r#"{"parentUuid":null,"isSidechain":false,"userType":"external","cwd":"/p","sessionId":"s1","version":"1.0","gitBranch":"","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Write","input":{"command":"cargo build","file_path":"/a.rs"}}]},"type":"assistant","uuid":"u1","timestamp":"2025-10-01T09:00:00.000Z"}"#;
+        let entry: SessionEntry = serde_json::from_str(json_line).unwrap();
+        let Message::Assistant { content, .. } = &entry.message else {
+            panic!("Expected Assistant message");
+        };
+        let matcher = cargo_matcher();
+
+        assert!(
+            extract_from_bash_command(&entry, content, &matcher, "s1").is_none(),
+            "a command field on a non-Bash tool use must not produce a tool invocation"
+        );
+    }
+
+    #[test]
+    fn test_extract_from_bash_command_reads_bash_tool_use() {
+        let json_line = r#"{"parentUuid":null,"isSidechain":false,"userType":"external","cwd":"/p","sessionId":"s1","version":"1.0","gitBranch":"","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"cargo build --release"}}]},"type":"assistant","uuid":"u1","timestamp":"2025-10-01T09:00:00.000Z"}"#;
+        let entry: SessionEntry = serde_json::from_str(json_line).unwrap();
+        let Message::Assistant { content, .. } = &entry.message else {
+            panic!("Expected Assistant message");
+        };
+        let matcher = cargo_matcher();
+
+        let invocation = extract_from_bash_command(&entry, content, &matcher, "s1")
+            .expect("cargo should be recognised in a Bash command");
+        assert_eq!(invocation.tool_name, "cargo");
+        assert_eq!(invocation.session_id, "s1");
     }
 }

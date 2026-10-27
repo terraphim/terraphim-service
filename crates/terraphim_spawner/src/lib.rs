@@ -1596,32 +1596,22 @@ mod tests {
 
     #[tokio::test]
     async fn test_spawn_with_working_dir_override() {
-        use std::os::unix::fs::PermissionsExt;
         use tempfile::TempDir;
 
         let tmpdir = TempDir::new().expect("create tempdir");
         let tmppath = tmpdir.path().to_path_buf();
 
-        // Write a tiny shell script that sleeps briefly before printing pwd.
-        // The sleep is load-bearing: it gives the test time to call
-        // `subscribe_output` after `spawn().await` returns. `OutputCapture`
-        // uses a tokio broadcast channel which drops messages emitted before
-        // any subscriber exists, so a fast `/bin/pwd` could complete and
-        // drop its line on the floor between spawn and subscribe. The
-        // validator only accepts a single executable path, so we cannot
-        // pass `sh -c '...'` as cli_command.
-        let script_path = tmpdir.path().join("pwd-with-delay.sh");
-        std::fs::write(&script_path, "#!/bin/sh\nsleep 0.2\npwd\n").expect("write pwd script");
-        let mut perms = std::fs::metadata(&script_path).unwrap().permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(&script_path, perms).expect("chmod script");
-
+        // Use the system shell as an interpreter rather than writing and
+        // executing a temporary script. Executing a freshly written file can
+        // race another test thread's fork on macOS and intermittently fail
+        // with ETXTBSY, while `sh -c` exercises the same working-directory
+        // override through a stable executable.
         let provider = Provider::new(
             "@pwd-agent",
             "Pwd Agent",
             terraphim_types::capability::ProviderType::Agent {
                 agent_id: "@pwd".to_string(),
-                cli_command: script_path.to_string_lossy().to_string(),
+                cli_command: "/bin/sh".to_string(),
                 working_dir: PathBuf::from("/tmp"),
             },
             vec![terraphim_types::capability::Capability::CodeGeneration],
@@ -1631,7 +1621,7 @@ mod tests {
         let ctx = SpawnContext::with_working_dir(tmppath.clone());
 
         let handle = spawner
-            .spawn(&provider, ".", ctx)
+            .spawn(&provider, "sleep 0.2; pwd", ctx)
             .await
             .expect("spawn with working_dir override should succeed");
 

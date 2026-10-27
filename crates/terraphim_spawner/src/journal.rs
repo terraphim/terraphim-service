@@ -2452,10 +2452,12 @@ mod tests {
         use std::os::unix::fs::symlink;
 
         let dir = temp_root();
-        let anchor = dir.path().join("anchor");
+        let canonical_temp_root =
+            std::fs::canonicalize(dir.path()).expect("canonicalise temporary root");
+        let anchor = canonical_temp_root.join("anchor");
         let original_root = anchor.join("journals");
-        let moved = dir.path().join("moved-anchor");
-        let target = dir.path().join("attacker");
+        let moved = canonical_temp_root.join("moved-anchor");
+        let target = canonical_temp_root.join("attacker");
         std::fs::create_dir(&anchor).expect("anchor");
         std::fs::create_dir(&original_root).expect("journal root");
         std::fs::create_dir(&target).expect("attacker target");
@@ -2652,9 +2654,10 @@ mod tests {
 
         let run_id = Uuid::new_v4();
         let journal = Journal::create(&link_path, run_id).expect("create through root alias");
+        let canonical_target = std::fs::canonicalize(&target).expect("canonicalise target");
         assert_eq!(
             journal.path(),
-            target.join(journal_filename(run_id)),
+            canonical_target.join(journal_filename(run_id)),
             "reported path must use the canonical root"
         );
         assert!(journal.path().exists());
@@ -2724,9 +2727,12 @@ mod tests {
         let run_id = Uuid::new_v4();
         let journal = Journal::create(&aliased_root, run_id)
             .expect("explicit root alias should resolve before secure traversal");
+        let canonical_target = std::fs::canonicalize(&target).expect("canonicalise target");
         assert_eq!(
             journal.path(),
-            target.join("inner").join(journal_filename(run_id))
+            canonical_target
+                .join("inner")
+                .join(journal_filename(run_id))
         );
         assert!(journal.path().exists());
     }

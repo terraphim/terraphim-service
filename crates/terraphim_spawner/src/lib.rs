@@ -1660,32 +1660,34 @@ mod tests {
 
     #[tokio::test]
     async fn test_spawn_pi_receives_prompt_model_and_task() {
-        use std::os::unix::fs::PermissionsExt;
+        use std::os::unix::fs::symlink;
         use tempfile::TempDir;
 
         let tmpdir = TempDir::new().expect("create tempdir");
-        let script_path = tmpdir.path().join("pi");
-        let args_path = tmpdir.path().join("pi-args.txt");
+        let pi_path = tmpdir.path().join("pi");
 
-        std::fs::write(
-            &script_path,
-            "#!/bin/sh\nprintf '%s\n' \"$@\" > \"$PI_ARGS_CAPTURE\"\n",
-        )
-        .expect("write pi test script");
-        let mut perms = std::fs::metadata(&script_path).unwrap().permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(&script_path, perms).expect("chmod pi test script");
+        // Keep the basename `pi` so AgentConfig selects pi's argument contract,
+        // but execute the stable system echo binary through a symlink. Unlike
+        // writing and immediately executing a temporary script, this cannot
+        // race concurrent process creation on macOS with ETXTBSY.
+        symlink("/bin/echo", &pi_path).expect("link stable system executable as pi");
 
         let provider = Provider::new(
             "@pi-agent",
             "Pi Agent",
             terraphim_types::capability::ProviderType::Agent {
                 agent_id: "@pi".to_string(),
-                cli_command: script_path.to_string_lossy().to_string(),
+                cli_command: pi_path.to_string_lossy().to_string(),
                 working_dir: tmpdir.path().to_path_buf(),
             },
             vec![terraphim_types::capability::Capability::CodeGeneration],
         );
+        let mut expected_args = AgentConfig::from_provider(&provider)
+            .expect("build pi config")
+            .with_model("phi3")
+            .args;
+        expected_args.push("What is 2+2?".to_string());
+        assert_eq!(expected_args, vec!["prompt", "phi3", "What is 2+2?"]);
 
         let spawner = AgentSpawner::new();
         let mut handle = spawner
@@ -1693,17 +1695,23 @@ mod tests {
                 &provider,
                 "What is 2+2?",
                 Some("phi3"),
-                SpawnContext::global()
-                    .with_env("PI_ARGS_CAPTURE", args_path.to_string_lossy().to_string()),
+                SpawnContext::global(),
             )
             .await
             .expect("pi spawn should succeed");
         let status = handle.wait().await.expect("pi test process should exit");
         assert!(status.success(), "pi test process should exit successfully");
 
-        let args = std::fs::read_to_string(&args_path).expect("read captured pi args");
-        let args: Vec<&str> = args.lines().collect();
-        assert_eq!(args, vec!["prompt", "phi3", "What is 2+2?"]);
+        let stdout: Vec<String> = handle
+            .output_capture()
+            .captured_events()
+            .into_iter()
+            .filter_map(|event| match event {
+                OutputEvent::Stdout { line, .. } => Some(line),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(stdout, vec!["prompt phi3 What is 2+2?".to_string()]);
     }
 
     #[tokio::test]

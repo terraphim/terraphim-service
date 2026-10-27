@@ -795,8 +795,10 @@ impl AgentSpawner {
         request: &SpawnRequest,
         ctx: SpawnContext,
     ) -> Result<AgentHandle, SpawnerError> {
-        // Try primary first with resource limits
-        let mut handle = self
+        // Try the primary first with resource limits. Pre-spawn failures are
+        // recoverable when a fallback is configured: validation, journal setup,
+        // and process creation may all fail before an AgentHandle exists.
+        let mut handle = match self
             .spawn_with_options(
                 &request.primary_provider,
                 &request.task,
@@ -804,7 +806,51 @@ impl AgentSpawner {
                 request,
                 &ctx,
             )
-            .await?;
+            .await
+        {
+            Ok(handle) => handle,
+            Err(primary_err) => {
+                let Some(ref fallback) = request.fallback_provider else {
+                    return Err(primary_err);
+                };
+
+                tracing::warn!(
+                    primary_provider = %request.primary_provider.id,
+                    error = %primary_err,
+                    fallback_provider = %fallback.id,
+                    "Primary spawn failed, attempting fallback"
+                );
+
+                return match self
+                    .spawn_with_options(
+                        fallback,
+                        &request.task,
+                        request.fallback_model.as_deref(),
+                        request,
+                        &ctx,
+                    )
+                    .await
+                {
+                    Ok(fallback_handle) => {
+                        tracing::info!(
+                            fallback_provider = %fallback.id,
+                            "Fallback spawn succeeded"
+                        );
+                        Ok(fallback_handle)
+                    }
+                    Err(fallback_err) => {
+                        tracing::error!(
+                            fallback_provider = %fallback.id,
+                            error = %fallback_err,
+                            "Fallback spawn also failed"
+                        );
+                        // Preserve the original failure, matching the fallback
+                        // contract that existed before early-exit detection.
+                        Err(primary_err)
+                    }
+                };
+            }
+        };
 
         // If no fallback configured, return immediately.
         let Some(ref fallback) = request.fallback_provider else {
@@ -2069,6 +2115,100 @@ mod tests {
             1,
             "journal should contain exactly one Completed record for the spawned process, got: {:?}",
             completed_records
+        );
+    }
+
+    #[tokio::test]
+    async fn test_spawn_with_fallback_recovers_when_primary_binary_does_not_exist() {
+        let spawner = AgentSpawner::new();
+        let primary = Provider::new(
+            "@missing-primary",
+            "Missing Primary Agent",
+            ProviderType::Agent {
+                agent_id: "@missing-primary".to_string(),
+                cli_command: "/definitely/not/a/real/terraphim-primary-cli".to_string(),
+                working_dir: PathBuf::from("/tmp"),
+            },
+            vec![Capability::CodeGeneration],
+        );
+        let fallback = create_test_agent_provider();
+        let request =
+            SpawnRequest::new(primary, "fallback-ran").with_fallback_provider(fallback.clone());
+
+        let mut handle = spawner
+            .spawn_with_fallback(&request, SpawnContext::global())
+            .await
+            .expect("missing primary binary should fall back to the real echo process");
+
+        assert_eq!(
+            handle.provider.id, fallback.id,
+            "returned handle must belong to the fallback provider"
+        );
+        let status = handle
+            .wait()
+            .await
+            .expect("fallback process should be waitable");
+        assert!(status.success(), "fallback echo process should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_spawn_with_fallback_releases_journal_after_missing_primary_binary() {
+        use tempfile::TempDir;
+        use uuid::Uuid;
+
+        let temp = TempDir::new().expect("create tempdir");
+        let run_id = Uuid::new_v4();
+        let ctx = SpawnContext::global().with_output_journal(temp.path(), run_id);
+        let spawner = AgentSpawner::new();
+        let primary = Provider::new(
+            "@missing-primary",
+            "Missing Primary Agent",
+            ProviderType::Agent {
+                agent_id: "@missing-primary".to_string(),
+                cli_command: "/definitely/not/a/real/terraphim-primary-cli".to_string(),
+                working_dir: PathBuf::from("/tmp"),
+            },
+            vec![Capability::CodeGeneration],
+        );
+        let fallback = create_test_agent_provider();
+        let request = SpawnRequest::new(primary, "journal-fallback-ran")
+            .with_fallback_provider(fallback.clone());
+
+        let mut handle = spawner
+            .spawn_with_fallback(&request, ctx)
+            .await
+            .expect("fallback should acquire the run journal after primary spawn failure");
+
+        assert_eq!(
+            handle.provider.id, fallback.id,
+            "journal-backed handle must belong to the fallback provider"
+        );
+        let fallback_process_id = handle.process_id();
+        let status = handle
+            .wait()
+            .await
+            .expect("fallback should finalise the shared run journal");
+        assert!(status.success(), "fallback echo process should succeed");
+
+        let recovered =
+            Journal::recover_run(temp.path(), run_id).expect("finalised journal should recover");
+        assert!(
+            recovered.completion.is_some(),
+            "fallback must leave the run journal finalised"
+        );
+        let completions: Vec<&JournalRecord> = recovered
+            .records
+            .iter()
+            .filter(|record| record.kind == OutputKind::Completed)
+            .collect();
+        assert_eq!(
+            completions.len(),
+            1,
+            "the fallback must seal the journal exactly once"
+        );
+        assert_eq!(
+            completions[0].process_id, fallback_process_id.0,
+            "the completion must belong to the fallback process"
         );
     }
 

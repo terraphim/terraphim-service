@@ -7,12 +7,22 @@
 use anyhow::Result;
 use std::fs;
 use std::io::Write;
+use std::path::PathBuf;
 use tempfile::{NamedTempFile, tempdir};
 use terraphim_session_analyzer::models::*;
 use terraphim_session_analyzer::utils;
 use terraphim_session_analyzer::{Analyzer, Reporter, SessionParser, TimelineEventType};
 
+/// Test data directory path
+#[allow(dead_code)]
+fn test_data_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("test_data")
+}
+
 /// Create a test session file with given content
+#[allow(dead_code)]
 fn create_test_session_file(content: &str) -> Result<NamedTempFile> {
     let mut file = NamedTempFile::new()?;
     writeln!(file, "{}", content)?;
@@ -694,8 +704,8 @@ mod cli_tests {
 
     #[test]
     fn test_cli_help_command() {
-        let output = Command::new("cargo")
-            .args(["run", "--bin", "tsa", "--", "--help"])
+        let output = Command::new(env!("CARGO_BIN_EXE_tsa"))
+            .args(["--help"])
             .output()
             .expect("Failed to execute CLI help command");
 
@@ -708,8 +718,8 @@ mod cli_tests {
 
     #[test]
     fn test_cli_version_command() {
-        let output = Command::new("cargo")
-            .args(["run", "--bin", "tsa", "--", "--version"])
+        let output = Command::new(env!("CARGO_BIN_EXE_tsa"))
+            .args(["--version"])
             .output()
             .expect("Failed to execute CLI version command");
 
@@ -720,8 +730,8 @@ mod cli_tests {
 
     #[test]
     fn test_cli_analyze_with_invalid_path() {
-        let output = Command::new("cargo")
-            .args(["run", "--bin", "tsa", "--", "analyze", "/nonexistent/path"])
+        let output = Command::new(env!("CARGO_BIN_EXE_tsa"))
+            .args(["analyze", "/nonexistent/path"])
             .output()
             .expect("Failed to execute CLI analyze command");
 
@@ -733,12 +743,8 @@ mod cli_tests {
     fn test_cli_analyze_with_test_data() {
         let temp_dir = create_test_session_directory().unwrap();
 
-        let output = Command::new("cargo")
+        let output = Command::new(env!("CARGO_BIN_EXE_tsa"))
             .args([
-                "run",
-                "--bin",
-                "tsa",
-                "--",
                 "analyze",
                 temp_dir.path().to_str().unwrap(),
                 "--format",

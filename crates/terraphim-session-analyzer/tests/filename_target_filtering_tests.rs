@@ -10,9 +10,27 @@
 
 use anyhow::Result;
 use std::fs;
+use std::io::Write;
+use std::path::PathBuf;
 use std::process::Command;
-use tempfile::tempdir;
+use tempfile::{NamedTempFile, tempdir};
 use terraphim_session_analyzer::{Analyzer, Reporter};
+
+/// Test data directory path
+#[allow(dead_code)]
+fn test_data_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("test_data")
+}
+
+/// Create a test session file with given content
+#[allow(dead_code)]
+fn create_test_session_file(content: &str) -> Result<NamedTempFile> {
+    let mut file = NamedTempFile::new()?;
+    writeln!(file, "{}", content)?;
+    Ok(file)
+}
 
 /// Create a test directory structure with the target filtering session files
 fn create_target_filtering_test_directory() -> Result<tempfile::TempDir> {
@@ -537,12 +555,8 @@ mod cli_integration_tests {
     fn test_cli_analyze_with_target_filename() {
         let temp_dir = create_target_filtering_test_directory().unwrap();
 
-        let output = Command::new("cargo")
+        let output = Command::new(env!("CARGO_BIN_EXE_tsa"))
             .args([
-                "run",
-                "--bin",
-                "tsa",
-                "--",
                 "analyze",
                 temp_dir.path().to_str().unwrap(),
                 "--target",
@@ -624,12 +638,8 @@ mod cli_integration_tests {
     fn test_cli_analyze_with_partial_target() {
         let temp_dir = create_target_filtering_test_directory().unwrap();
 
-        let output = Command::new("cargo")
+        let output = Command::new(env!("CARGO_BIN_EXE_tsa"))
             .args([
-                "run",
-                "--bin",
-                "tsa",
-                "--",
                 "analyze",
                 temp_dir.path().to_str().unwrap(),
                 "--target",
@@ -667,12 +677,8 @@ mod cli_integration_tests {
     fn test_cli_analyze_with_nonexistent_target() {
         let temp_dir = create_target_filtering_test_directory().unwrap();
 
-        let output = Command::new("cargo")
+        let output = Command::new(env!("CARGO_BIN_EXE_tsa"))
             .args([
-                "run",
-                "--bin",
-                "tsa",
-                "--",
                 "analyze",
                 temp_dir.path().to_str().unwrap(),
                 "--target",
@@ -701,12 +707,8 @@ mod cli_integration_tests {
     fn test_cli_files_only_flag_with_target() {
         let temp_dir = create_target_filtering_test_directory().unwrap();
 
-        let output = Command::new("cargo")
+        let output = Command::new(env!("CARGO_BIN_EXE_tsa"))
             .args([
-                "run",
-                "--bin",
-                "tsa",
-                "--",
                 "analyze",
                 temp_dir.path().to_str().unwrap(),
                 "--target",

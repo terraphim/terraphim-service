@@ -1,6 +1,6 @@
 [package]
 name = "terraphim_spawner"
-version = "1.20.4"
+version = "1.23.0"
 edition = "2021"
 authors = ["Terraphim Team <team@terraphim.ai>"]
 description = "Agent spawner for Terraphim with health checking and output capture"
@@ -25,7 +25,13 @@ tracing = { workspace = true }
 regex = "1.10"
 
 # Process management
-nix = { version = "0.27", features = ["process", "signal", "resource"] }
+nix = { version = "0.27", features = ["process", "signal", "resource", "fs"] }
+
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+uuid = { workspace = true, features = ["v4", "serde"] }
+chrono = { workspace = true, features = ["serde"] }
+sha2 = { version = "=0.10.9", registry = "terraphim-mirror" }
 
 [dev-dependencies]
 proptest = "1.4"

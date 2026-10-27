@@ -133,10 +133,24 @@ impl AgentConfig {
 
     /// Whether the CLI tool supports stdin delivery.
     ///
-    /// opencode hangs on stdin for large tasks (>~50KB), so it must
-    /// always receive the task as a positional argument.
+    /// opencode hangs on stdin for large tasks (>~50KB), and pi-rust's
+    /// non-interactive mode expects the prompt as a positional argument.
     fn infer_supports_stdin(cli_command: &str) -> bool {
-        !matches!(Self::cli_name(cli_command), "opencode")
+        !matches!(Self::cli_name(cli_command), "opencode" | "pi-rust")
+    }
+
+    /// Remove broad default tool permissions from CLI invocations that support
+    /// tool allow-lists. The prompt remains the primary instruction boundary;
+    /// this prevents the default Claude wrapper from explicitly enabling tools
+    /// for bounded PR gate producers.
+    pub fn without_default_tools(mut self) -> Self {
+        match Self::cli_name(&self.cli_command) {
+            "claude" | "claude-code" => {
+                self.args.retain(|arg| !arg.starts_with("--allowedTools="));
+            }
+            _ => {}
+        }
+        self
     }
 
     /// Return the native project-local skill directory for CLIs that support skills.
@@ -467,6 +481,12 @@ mod tests {
         assert!(AgentConfig::infer_supports_stdin("/usr/local/bin/claude"));
         assert!(AgentConfig::infer_supports_stdin("codex"));
 
+        // pi-rust expects the prompt as a positional argument in `-p` mode.
+        assert!(!AgentConfig::infer_supports_stdin("pi-rust"));
+        assert!(!AgentConfig::infer_supports_stdin(
+            "/home/alex/.local/bin/pi-rust"
+        ));
+
         // Unknown tools default to true (stdin is the safe assumption)
         assert!(AgentConfig::infer_supports_stdin("unknown-tool"));
     }
@@ -531,6 +551,34 @@ mod tests {
             config_claude.supports_stdin,
             "claude config should have supports_stdin=true"
         );
+    }
+
+    #[test]
+    fn test_without_default_tools_removes_claude_tool_allow_list() {
+        let provider = terraphim_types::capability::Provider {
+            id: "test-claude".into(),
+            name: "test-claude".into(),
+            provider_type: terraphim_types::capability::ProviderType::Agent {
+                agent_id: "test".into(),
+                cli_command: "claude".into(),
+                working_dir: std::env::current_dir().unwrap(),
+            },
+            capabilities: vec![],
+            cost_level: terraphim_types::capability::CostLevel::Cheap,
+            latency: terraphim_types::capability::Latency::Medium,
+            keywords: vec![],
+        };
+        let config = AgentConfig::from_provider(&provider).unwrap();
+        assert!(config
+            .args
+            .iter()
+            .any(|arg| arg.starts_with("--allowedTools=")));
+
+        let config = config.without_default_tools();
+        assert!(!config
+            .args
+            .iter()
+            .any(|arg| arg.starts_with("--allowedTools=")));
     }
 
     #[test]
@@ -717,8 +765,8 @@ mod tests {
 
     #[test]
     fn test_infer_supports_stdin_pi_rust() {
-        assert!(AgentConfig::infer_supports_stdin("pi-rust"));
-        assert!(AgentConfig::infer_supports_stdin(
+        assert!(!AgentConfig::infer_supports_stdin("pi-rust"));
+        assert!(!AgentConfig::infer_supports_stdin(
             "/home/alex/.local/bin/pi-rust"
         ));
         assert!(AgentConfig::infer_supports_stdin("pi"));
@@ -749,5 +797,85 @@ mod tests {
         let debug_output = format!("{:?}", config);
         assert!(!debug_output.contains("***REDACTED***"));
         assert!(debug_output.contains("AgentConfig"));
+    }
+
+    fn minimal_config(cli_command: &str) -> AgentConfig {
+        AgentConfig {
+            agent_id: "test-agent".to_string(),
+            cli_command: cli_command.to_string(),
+            args: vec![],
+            working_dir: None,
+            env_vars: HashMap::new(),
+            required_api_keys: vec![],
+            resource_limits: ResourceLimits::default(),
+            use_stdin: false,
+            supports_stdin: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_validate_missing_cli_returns_cli_not_found() {
+        let config = minimal_config("__terraphim_no_such_cli_xyz_999__");
+        let validator = AgentValidator::new(&config);
+        let result = validator.validate().await;
+        assert!(
+            matches!(result, Err(ValidationError::CliNotFound(_))),
+            "expected CliNotFound, got {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_validate_missing_api_key_returns_api_key_not_set() {
+        const KEY: &str = "TERRAPHIM_TEST_MISSING_KEY_SPAWNER_XYZ";
+        unsafe { std::env::remove_var(KEY) };
+
+        let mut config = minimal_config("echo");
+        config.required_api_keys = vec![KEY.to_string()];
+
+        let validator = AgentValidator::new(&config);
+        let result = validator.validate().await;
+        assert!(
+            matches!(result, Err(ValidationError::ApiKeyNotSet(_))),
+            "expected ApiKeyNotSet, got {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_validate_valid_config_succeeds() {
+        let config = minimal_config("echo");
+        let validator = AgentValidator::new(&config);
+        let result = validator.validate().await;
+        assert!(result.is_ok(), "expected Ok(()), got {:?}", result);
+    }
+
+    #[tokio::test]
+    async fn test_validate_api_key_present_succeeds() {
+        const KEY: &str = "TERRAPHIM_TEST_PRESENT_KEY_SPAWNER_XYZ";
+        unsafe { std::env::set_var(KEY, "dummy-value") };
+
+        let mut config = minimal_config("echo");
+        config.required_api_keys = vec![KEY.to_string()];
+
+        let validator = AgentValidator::new(&config);
+        let result = validator.validate().await;
+
+        unsafe { std::env::remove_var(KEY) };
+
+        assert!(result.is_ok(), "expected Ok(()), got {:?}", result);
+    }
+
+    #[tokio::test]
+    async fn test_validate_missing_working_dir_returns_error() {
+        let mut config = minimal_config("echo");
+        config.working_dir = Some(std::path::PathBuf::from("/nonexistent/path/xyz_999"));
+        let validator = AgentValidator::new(&config);
+        let result = validator.validate().await;
+        assert!(
+            matches!(result, Err(ValidationError::WorkingDirNotFound(_))),
+            "expected WorkingDirNotFound, got {:?}",
+            result
+        );
     }
 }

@@ -1508,8 +1508,44 @@ fn unsafe_traversal(error: Errno, path: &Path) -> JournalError {
 }
 
 #[cfg(unix)]
+fn canonical_root(root: &Path, create_missing: bool) -> Result<PathBuf, JournalError> {
+    // Validate the caller's spelling before canonicalisation so `..` and other
+    // non-normal components are rejected rather than silently resolved.
+    validate_absolute_root(root)?;
+
+    let mut existing = root;
+    let mut missing = Vec::new();
+    let canonical = loop {
+        match std::fs::canonicalize(existing) {
+            Ok(path) => break path,
+            Err(error) if create_missing && error.kind() == std::io::ErrorKind::NotFound => {
+                let Some(name) = existing.file_name() else {
+                    return Err(JournalError::Io(error));
+                };
+                missing.push(name.to_os_string());
+                let Some(parent) = existing.parent() else {
+                    return Err(JournalError::Io(error));
+                };
+                existing = parent;
+            }
+            Err(error) => return Err(JournalError::Io(error)),
+        }
+    };
+
+    let mut canonical = canonical;
+    for component in missing.iter().rev() {
+        canonical.push(component);
+    }
+    Ok(canonical)
+}
+
+#[cfg(unix)]
 fn open_root_dir(root: &Path, create_missing: bool) -> Result<OpenedRoot, JournalError> {
-    let components = validate_absolute_root(root)?;
+    // The root is an explicit trust boundary. Resolve platform aliases such as
+    // macOS `/tmp -> /private/tmp` once, then retain O_NOFOLLOW for every
+    // component of the canonical path and for the journal leaf below it.
+    let canonical = canonical_root(root, create_missing)?;
+    let components = validate_absolute_root(&canonical)?;
     let root_flags = OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_CLOEXEC;
     let mut current = owned_fd(
         open(Path::new("/"), root_flags, Mode::empty())
@@ -1573,7 +1609,7 @@ fn open_root_dir(root: &Path, create_missing: bool) -> Result<OpenedRoot, Journa
 
     Ok(OpenedRoot {
         fd: current,
-        path: root.to_path_buf(),
+        path: canonical,
     })
 }
 
@@ -2605,17 +2641,43 @@ mod tests {
         assert!(matches!(err, JournalError::UnsafePath(_)));
     }
 
+    #[cfg(unix)]
     #[test]
-    fn unsafe_root_symlink_rejected() {
+    fn explicitly_supplied_symlink_root_is_canonicalised() {
         let dir = temp_root();
         let target = dir.path().join("target");
         std::fs::create_dir_all(&target).expect("mkdir");
         let link_path = dir.path().join("link");
         std::os::unix::fs::symlink(&target, &link_path).expect("symlink");
 
-        let err =
-            Journal::create(&link_path, Uuid::new_v4()).expect_err("must reject symlinked root");
-        assert!(matches!(err, JournalError::UnsafePath(_)));
+        let run_id = Uuid::new_v4();
+        let journal = Journal::create(&link_path, run_id).expect("create through root alias");
+        assert_eq!(
+            journal.path(),
+            target.join(journal_filename(run_id)),
+            "reported path must use the canonical root"
+        );
+        assert!(journal.path().exists());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn standard_macos_tmp_alias_is_accepted() {
+        let tmp = Path::new("/tmp");
+        assert!(
+            std::fs::symlink_metadata(tmp)
+                .expect("stat /tmp")
+                .file_type()
+                .is_symlink(),
+            "macOS /tmp regression requires the standard /tmp symlink"
+        );
+        let dir = tempfile::Builder::new()
+            .prefix("terraphim-journal-macos-tmp-")
+            .tempdir_in(tmp)
+            .expect("tempdir under /tmp alias");
+        let journal = Journal::create(dir.path(), Uuid::new_v4())
+            .expect("journal root below /tmp alias must be accepted");
+        assert!(journal.path().starts_with("/private/tmp"));
     }
 
     #[test]
@@ -2645,55 +2707,48 @@ mod tests {
     // ancestor-symlink rejection path. They only run on Unix because
     // the helpers are gated on `cfg(unix)`.
 
-    /// A symlink anywhere in the absolute root path is rejected by
-    /// [`reject_ancestor_symlinks`]. The leaf of the path is itself
-    /// the symlink — `validate_root` would not detect this because
-    /// the final component does not yet exist on disk.
+    /// Symlinks in the explicitly supplied root are resolved once before the
+    /// descriptor-relative, no-follow traversal begins. Components below that
+    /// canonical trust boundary remain protected by `O_NOFOLLOW`.
     #[cfg(unix)]
     #[test]
-    fn ancestor_symlink_rejected_by_create() {
+    fn ancestor_symlink_is_canonicalised_by_create() {
         let dir = temp_root();
         let target = dir.path().join("target");
         std::fs::create_dir_all(&target).expect("mkdir target");
 
-        // Build a path whose leaf is an *existing* symlink. We pick
-        // `<dir>/sneaky -> <dir>/target` and feed `create` the path
-        // `<dir>/sneaky/inner`. The leaf `inner` does not exist, so
-        // `validate_root` accepts the path; the helper must reject
-        // the `<dir>/sneaky` symlink in the chain.
         let sneaky = dir.path().join("sneaky");
         std::os::unix::fs::symlink(&target, &sneaky).expect("symlink");
 
-        let root_with_ancestor_symlink = sneaky.join("inner");
-        let err = Journal::create(&root_with_ancestor_symlink, Uuid::new_v4())
-            .expect_err("must reject ancestor symlink at create time");
-        assert!(
-            matches!(err, JournalError::UnsafePath(_)),
-            "expected UnsafePath, got {err:?}"
+        let aliased_root = sneaky.join("inner");
+        let run_id = Uuid::new_v4();
+        let journal = Journal::create(&aliased_root, run_id)
+            .expect("explicit root alias should resolve before secure traversal");
+        assert_eq!(
+            journal.path(),
+            target.join("inner").join(journal_filename(run_id))
         );
-
-        // `inner` must not have been created.
-        assert!(!root_with_ancestor_symlink.exists());
+        assert!(journal.path().exists());
     }
 
-    /// Same as above, but reached via [`Journal::recover_run`].
+    /// Recovery applies the same one-time root canonicalisation as creation.
     #[cfg(unix)]
     #[test]
-    fn ancestor_symlink_rejected_by_recover_run() {
+    fn ancestor_symlink_is_canonicalised_by_recover_run() {
         let dir = temp_root();
         let target = dir.path().join("target");
-        std::fs::create_dir_all(&target).expect("mkdir target");
+        let real_root = target.join("inner");
+        std::fs::create_dir_all(&real_root).expect("mkdir target root");
 
         let sneaky = dir.path().join("sneaky");
         std::os::unix::fs::symlink(&target, &sneaky).expect("symlink");
+        let aliased_root = sneaky.join("inner");
+        let run_id = Uuid::new_v4();
+        drop(Journal::create(&real_root, run_id).expect("create journal"));
 
-        let root_with_ancestor_symlink = sneaky.join("inner");
-        let err = Journal::recover_run(&root_with_ancestor_symlink, Uuid::new_v4())
-            .expect_err("must reject ancestor symlink at recover_run time");
-        assert!(
-            matches!(err, JournalError::UnsafePath(_)),
-            "expected UnsafePath, got {err:?}"
-        );
+        let recovered = Journal::recover_run(&aliased_root, run_id)
+            .expect("recover through explicitly supplied root alias");
+        assert_eq!(recovered.run_id, run_id);
     }
 
     /// If the operator pre-created the journal root, [`Journal::create`]
